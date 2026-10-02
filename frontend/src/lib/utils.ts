@@ -52,3 +52,13 @@ export function getStateLabel(state: string): string {
 export function classNames(...classes: (string | boolean | undefined | null)[]): string {
   return classes.filter(Boolean).join(' ');
 }
+
+export function getDashboardRoute(role: string): string {
+  const r = (role || '').toUpperCase();
+  if (r === 'ADMIN') return '/dashboard/admin';
+  if (r === 'TEACHER') return '/dashboard/teacher';
+  if (r === 'STUDENT') return '/dashboard/student';
+  if (r === 'GUARDIAN') return '/dashboard/parent';
+  return '/dashboard/admin';
+}
+

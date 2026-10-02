@@ -1,5 +1,5 @@
-from fastapi import APIRouter
-from app.api import auth, schools, classes, invites, assignments, submissions, feedback, documents, audit, dashboard, reminders
+﻿from fastapi import APIRouter
+from app.api import auth, schools, classes, invites, assignments, submissions, feedback, documents, audit, dashboard, reminders, users
 
 api_router = APIRouter()
 
@@ -14,3 +14,4 @@ api_router.include_router(documents.router, prefix="/documents", tags=["Document
 api_router.include_router(audit.router, prefix="/audit", tags=["Audit"])
 api_router.include_router(dashboard.router, prefix="/dashboard", tags=["Dashboard"])
 api_router.include_router(reminders.router, prefix="/reminders", tags=["Reminders"])
+api_router.include_router(users.router, prefix="/users", tags=["Users"])
