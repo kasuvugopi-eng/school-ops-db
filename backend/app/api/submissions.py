@@ -105,6 +105,10 @@ async def update_submission(
         try:
             new_state = SubmissionState(body.state)
             validate_submission_transition(sub.state, new_state)
+            
+            if new_state not in (SubmissionState.IN_PROGRESS, SubmissionState.BLOCKED):
+                raise HTTPException(status_code=403, detail="Role violation")
+                
             sub.state = new_state
             if new_state in (SubmissionState.SUBMITTED, SubmissionState.RESUBMITTED):
                 sub.submitted_at = datetime.now(timezone.utc)
