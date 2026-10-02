@@ -85,6 +85,7 @@ async def get_class(
 @router.post("/{class_id}/teachers")
 async def assign_teacher(
     class_id: uuid.UUID,
+    request: Request,
     teacher_id: uuid.UUID,
     subject: str = None,
     current_user: User = Depends(require_role(UserRole.ADMIN)),
@@ -95,14 +96,20 @@ async def assign_teacher(
     grade_class = cls_result.scalar_one_or_none()
     if not grade_class:
         raise HTTPException(status_code=404, detail="Class not found")
-    assert_same_school(current_user, grade_class.school_id)
+    if grade_class.school_id != current_user.school_id:
+        await log_event(db, "access.denied", school_id=current_user.school_id, actor_id=current_user.id, details={"reason": "cross-school class", "class_id": str(class_id)})
+        await db.commit()
+        raise HTTPException(status_code=403, detail="Access denied")
     
     # Verify teacher exists and is in same school
     teacher_result = await db.execute(select(User).where(User.id == teacher_id, User.role == UserRole.TEACHER))
     teacher = teacher_result.scalar_one_or_none()
     if not teacher:
         raise HTTPException(status_code=404, detail="Teacher not found")
-    assert_same_school(current_user, teacher.school_id)
+    if teacher.school_id != current_user.school_id:
+        await log_event(db, "access.denied", school_id=current_user.school_id, actor_id=current_user.id, details={"reason": "cross-school teacher", "teacher_id": str(teacher_id)})
+        await db.commit()
+        raise HTTPException(status_code=403, detail="Access denied")
     
     # Check if already assigned
     existing = await db.execute(
@@ -112,13 +119,13 @@ async def assign_teacher(
         )
     )
     if existing.scalar_one_or_none():
-        raise HTTPException(status_code=400, detail="Teacher already assigned to this class")
+        return {"message": "Teacher assigned", "teacher_id": str(teacher_id), "class_id": str(class_id)}
     
     assignment = TeacherClassAssignment(
         teacher_id=teacher_id, class_id=class_id, subject=subject
     )
     db.add(assignment)
-    await log_event(db, "teacher.assigned_to_class", school_id=current_user.school_id,
+    await log_event(db, "class.assign", school_id=current_user.school_id,
                     actor_id=current_user.id, resource_type="teacher_class",
                     resource_id=assignment.id, details={"teacher_id": str(teacher_id), "class_id": str(class_id)})
     await db.commit()
@@ -127,6 +134,7 @@ async def assign_teacher(
 @router.post("/{class_id}/students")
 async def enroll_student(
     class_id: uuid.UUID,
+    request: Request,
     student_id: uuid.UUID,
     current_user: User = Depends(require_role(UserRole.ADMIN)),
     db: AsyncSession = Depends(get_db)
@@ -135,12 +143,19 @@ async def enroll_student(
     grade_class = cls_result.scalar_one_or_none()
     if not grade_class:
         raise HTTPException(status_code=404, detail="Class not found")
-    assert_same_school(current_user, grade_class.school_id)
+    if grade_class.school_id != current_user.school_id:
+        await log_event(db, "access.denied", school_id=current_user.school_id, actor_id=current_user.id, details={"reason": "cross-school class", "class_id": str(class_id)})
+        await db.commit()
+        raise HTTPException(status_code=403, detail="Access denied")
     
     student_result = await db.execute(select(User).where(User.id == student_id, User.role == UserRole.STUDENT))
     student = student_result.scalar_one_or_none()
     if not student:
         raise HTTPException(status_code=404, detail="Student not found")
+    if student.school_id != current_user.school_id:
+        await log_event(db, "access.denied", school_id=current_user.school_id, actor_id=current_user.id, details={"reason": "cross-school student", "student_id": str(student_id)})
+        await db.commit()
+        raise HTTPException(status_code=403, detail="Access denied")
     
     existing = await db.execute(
         select(StudentEnrollment).where(
@@ -149,11 +164,11 @@ async def enroll_student(
         )
     )
     if existing.scalar_one_or_none():
-        raise HTTPException(status_code=400, detail="Student already enrolled")
+        return {"message": "Student enrolled", "student_id": str(student_id), "class_id": str(class_id)}
     
     enrollment = StudentEnrollment(student_id=student_id, class_id=class_id)
     db.add(enrollment)
-    await log_event(db, "student.enrolled", school_id=current_user.school_id,
+    await log_event(db, "class.assign", school_id=current_user.school_id,
                     actor_id=current_user.id, resource_type="student_enrollment",
                     resource_id=enrollment.id, details={"student_id": str(student_id), "class_id": str(class_id)})
     await db.commit()
