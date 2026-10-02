@@ -17,7 +17,7 @@ export default function NewAssignmentPage() {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    api.get<any>('/api/classes').then(res => setClasses(res.data)).catch(console.error);
+    api.get<any>('/api/classes').then(res => setClasses(Array.isArray(res) ? res : (res?.items ?? res?.data ?? []))).catch(console.error);
   }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -25,7 +25,8 @@ export default function NewAssignmentPage() {
     setLoading(true);
     try {
       const res = await api.post<any>('/api/assignments', formData);
-      router.push(`/dashboard/teacher/assignments/${res.data.id}`);
+      const assignmentId = res?.id ?? res?.data?.id;
+      router.push(`/dashboard/teacher/assignments/${assignmentId}`);
     } catch (err) {
       console.error(err);
       alert('Failed to create assignment');

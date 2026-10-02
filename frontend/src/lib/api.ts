@@ -1,5 +1,24 @@
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
+function parseErrorMessage(error: any, fallbackStatus: number): string {
+  let errorMessage = `HTTP ${fallbackStatus}`;
+  if (error && error.detail) {
+    if (typeof error.detail === 'string') {
+      errorMessage = error.detail;
+    } else if (Array.isArray(error.detail)) {
+      errorMessage = error.detail
+        .map((item: any) => {
+          const loc = Array.isArray(item.loc) ? item.loc.join('.') : item.loc;
+          return loc ? `${loc}: ${item.msg || JSON.stringify(item)}` : (item.msg || JSON.stringify(item));
+        })
+        .join('; ');
+    } else {
+      errorMessage = JSON.stringify(error.detail);
+    }
+  }
+  return errorMessage;
+}
+
 class ApiClient {
   private getToken(): string | null {
     if (typeof window === 'undefined') return null;
@@ -28,7 +47,7 @@ class ApiClient {
         localStorage.removeItem('refresh_token');
         window.location.href = '/login';
       }
-      throw new Error(error.detail || `HTTP ${response.status}`);
+      throw new Error(parseErrorMessage(error, response.status));
     }
 
     return response.json();
@@ -74,7 +93,7 @@ class ApiClient {
 
     if (!response.ok) {
       const error = await response.json().catch(() => ({ detail: 'Upload failed' }));
-      throw new Error(error.detail || `HTTP ${response.status}`);
+      throw new Error(parseErrorMessage(error, response.status));
     }
 
     return response.json();

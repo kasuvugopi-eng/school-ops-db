@@ -15,7 +15,7 @@ export default function AdminDocumentsPage() {
   const fetchDocs = async () => {
     try {
       const res = await api.get<any>('/api/documents');
-      setDocuments(res.data || []);
+      setDocuments(Array.isArray(res) ? res : (res?.items ?? res?.data ?? []));
     } catch (err) {
       console.error(err);
     } finally {

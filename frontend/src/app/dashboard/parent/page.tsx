@@ -11,7 +11,8 @@ export default function ParentDashboardPage() {
     async function load() {
       try {
         const res = await api.get<any>('/api/dashboard');
-        setChildren(res.data?.children || []);
+        const childrenList = res?.children ?? res?.data?.children;
+        setChildren(Array.isArray(childrenList) ? childrenList : (childrenList?.items ?? []));
       } catch (err) {
         console.error(err);
       } finally {

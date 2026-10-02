@@ -9,12 +9,12 @@ export default function AdminClassesPage() {
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
   
-  const [formData, setFormData] = useState({ name: '', grade_level: 1 });
+  const [formData, setFormData] = useState({ name: '', grade_level: '1' });
   
   const fetchClasses = async () => {
     try {
       const res = await api.get<any>('/api/classes');
-      setClasses(res.data);
+      setClasses(Array.isArray(res) ? res : (res?.items ?? res?.data ?? []));
     } catch (err) {
       console.error(err);
     } finally {
@@ -27,13 +27,16 @@ export default function AdminClassesPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      await api.post<any>('/api/classes', formData);
+      await api.post<any>('/api/classes', {
+        name: formData.name,
+        grade_level: String(formData.grade_level),
+      });
       setModalOpen(false);
       fetchClasses();
-      setFormData({ name: '', grade_level: 1 });
-    } catch (err) {
+      setFormData({ name: '', grade_level: '1' });
+    } catch (err: any) {
       console.error(err);
-      alert('Failed to create class');
+      alert(err.message || 'Failed to create class');
     }
   };
 
@@ -68,7 +71,7 @@ export default function AdminClassesPage() {
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Grade Level</label>
-            <input type="number" required min="1" max="12" value={formData.grade_level} onChange={e => setFormData({...formData, grade_level: parseInt(e.target.value)})} className="w-full px-3 py-2 border border-gray-300 rounded-md" />
+            <input type="number" required min="1" max="12" value={formData.grade_level} onChange={e => setFormData({...formData, grade_level: e.target.value})} className="w-full px-3 py-2 border border-gray-300 rounded-md" />
           </div>
           <div className="flex justify-end gap-3 mt-6">
             <button type="button" onClick={() => setModalOpen(false)} className="px-4 py-2 border border-gray-300 rounded-md text-gray-700">Cancel</button>

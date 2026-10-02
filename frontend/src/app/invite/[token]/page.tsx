@@ -24,7 +24,7 @@ export default function InviteAcceptPage() {
     async function validate() {
       try {
         const res = await api.get<any>(`/api/invites/${token}/validate`);
-        setInvite(res.data);
+        setInvite(res?.data ?? res);
       } catch (err) {
         setError('Invalid or expired invite link.');
       } finally {
@@ -37,12 +37,20 @@ export default function InviteAcceptPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSubmitting(true);
+    setError('');
     try {
-      await api.post<any>(`/api/invites/${token}/accept`, formData);
+      const payload = {
+        token: token as string,
+        email: formData.email,
+        password: formData.password,
+        full_name: formData.full_name,
+        phone: formData.phone.trim() ? formData.phone.trim() : null
+      };
+      await api.post<any>(`/api/invites/${token}/accept`, payload);
       alert('Account created successfully! Please login.');
       router.push('/login');
     } catch (err: any) {
-      setError(err.response?.data?.detail || 'Failed to create account');
+      setError(err.message || 'Failed to create account');
     } finally {
       setSubmitting(false);
     }

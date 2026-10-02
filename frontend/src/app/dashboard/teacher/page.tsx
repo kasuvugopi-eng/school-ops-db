@@ -13,7 +13,7 @@ export default function TeacherDashboardPage() {
   const load = async () => {
     try {
       const res = await api.get<any>('/api/dashboard');
-      setData(res.data);
+      setData(res?.data ?? res);
     } catch (err) {
       console.error(err);
     } finally {
@@ -27,6 +27,9 @@ export default function TeacherDashboardPage() {
   useSchoolWebSocket(user?.school_id || null, load);
 
   if (loading) return <div>Loading dashboard...</div>;
+
+  const blockedList = Array.isArray(data?.blocked_students) ? data.blocked_students : (data?.blocked_students?.items ?? []);
+  const pendingReviewsList = Array.isArray(data?.pending_reviews) ? data.pending_reviews : (data?.pending_reviews?.items ?? []);
 
   return (
     <div className="space-y-6">
@@ -43,23 +46,23 @@ export default function TeacherDashboardPage() {
         </div>
         <div className="bg-white p-6 rounded-xl shadow-sm border border-red-200 border-l-4 border-l-red-500">
           <p className="text-sm font-medium text-red-500">Blocked Students</p>
-          <p className="text-2xl font-bold text-gray-900">{data?.blocked_students?.length || 0}</p>
+          <p className="text-2xl font-bold text-gray-900">{blockedList.length}</p>
         </div>
         <div className="bg-white p-6 rounded-xl shadow-sm border border-yellow-200 border-l-4 border-l-yellow-500">
           <p className="text-sm font-medium text-yellow-600">Pending Reviews</p>
-          <p className="text-2xl font-bold text-gray-900">{data?.pending_reviews || 0}</p>
+          <p className="text-2xl font-bold text-gray-900">{Array.isArray(data?.pending_reviews) ? data.pending_reviews.length : (data?.pending_reviews || 0)}</p>
         </div>
       </div>
 
-      {data?.blocked_students?.length > 0 && (
+      {blockedList.length > 0 && (
         <div>
           <h2 className="text-lg font-bold text-red-600 mb-4">Attention Needed: Blocked Students</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {data.blocked_students.map((student: any) => (
-              <div key={student.id} className="bg-red-50 p-4 rounded-lg border border-red-200">
-                <p className="font-semibold text-red-900">{student.name}</p>
+            {blockedList.map((student: any, idx: number) => (
+              <div key={student.submission_id || student.id || idx} className="bg-red-50 p-4 rounded-lg border border-red-200">
+                <p className="font-semibold text-red-900">{student.student_name || student.name}</p>
                 <p className="text-sm text-red-700 mt-1">Blocked on: {student.assignment_title}</p>
-                <p className="text-sm text-red-600 mt-2 italic">"{student.block_reason}"</p>
+                <p className="text-sm text-red-600 mt-2 italic">"{student.blocked_reason || student.block_reason}"</p>
               </div>
             ))}
           </div>

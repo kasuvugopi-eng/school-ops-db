@@ -15,7 +15,8 @@ export default function AdminStudentsPage() {
     async function load() {
       try {
         const res = await api.get<any>('/api/dashboard'); // Mocked, ideally /api/students
-        setStudents(res.data?.students || []);
+        const studentsList = res?.students ?? res?.data?.students;
+        setStudents(Array.isArray(studentsList) ? studentsList : (studentsList?.items ?? []));
       } catch (err) {
         console.error(err);
       } finally {
@@ -29,7 +30,8 @@ export default function AdminStudentsPage() {
     e.preventDefault();
     try {
       const res = await api.post<any>('/api/invites', { role: inviteRole });
-      setInviteLink(`${window.location.origin}/invite/${res.data.token}`);
+      const token = res?.token ?? res?.data?.token;
+      setInviteLink(`${window.location.origin}/invite/${token}`);
     } catch (err) {
       console.error(err);
       alert('Failed to generate invite');

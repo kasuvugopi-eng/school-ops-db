@@ -15,8 +15,9 @@ export default function ParseReviewPage() {
     async function load() {
       try {
         const res = await api.get<any>(`/api/documents/${id}/parse-result`);
-        setData(res.data);
-        setFormData(res.data.fields || {});
+        const parseData = res?.data ?? res;
+        setData(parseData);
+        setFormData(parseData?.parsed_data ?? parseData?.fields ?? {});
       } catch (err) {
         console.error(err);
       } finally {
@@ -44,7 +45,7 @@ export default function ParseReviewPage() {
       <div className="flex justify-between items-center">
         <h1 className="text-2xl font-bold text-gray-900">Review Parsed Document</h1>
         <div className="bg-indigo-100 text-indigo-800 px-3 py-1 rounded-full text-sm font-medium">
-          Confidence: {Math.round((data.confidence_score || 0) * 100)}%
+          Confidence: {Math.round((data.confidence_notes?.overall_confidence ?? data.confidence_score ?? 0) * 100)}%
         </div>
       </div>
 

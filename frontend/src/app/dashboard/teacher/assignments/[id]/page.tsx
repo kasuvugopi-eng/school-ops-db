@@ -18,7 +18,13 @@ export default function AssignmentDetailPage() {
   const fetchAssignment = async () => {
     try {
       const res = await api.get<any>(`/api/assignments/${id}`);
-      setAssignment(res.data);
+      const assignmentData = res?.data ?? res;
+      if (assignmentData) {
+        assignmentData.submissions = Array.isArray(assignmentData.submissions) 
+          ? assignmentData.submissions 
+          : (assignmentData.submissions?.items ?? []);
+      }
+      setAssignment(assignmentData);
     } catch (err) {
       console.error(err);
     } finally {
@@ -46,8 +52,10 @@ export default function AssignmentDetailPage() {
 
   const submitFeedback = async (subId: string, action: string) => {
     try {
+      const feedbackText = feedbackState[subId] || '';
       await api.post<any>(`/api/submissions/${subId}/feedback`, {
-        feedback_text: feedbackState[subId] || '',
+        content: feedbackText,
+        feedback_text: feedbackText,
         action: action
       });
       setFeedbackState(prev => ({ ...prev, [subId]: '' }));
@@ -98,9 +106,9 @@ export default function AssignmentDetailPage() {
                 </div>
               </div>
               
-              {sub.content && (
+              {(sub.content_text || sub.content) && (
                 <div className="bg-gray-50 p-4 rounded-md text-gray-800 text-sm mb-4 border border-gray-200">
-                  {sub.content}
+                  {sub.content_text || sub.content}
                 </div>
               )}
 

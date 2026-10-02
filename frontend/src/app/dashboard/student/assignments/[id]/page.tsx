@@ -16,9 +16,19 @@ export default function StudentAssignmentDetailPage() {
   const fetchData = async () => {
     try {
       const res = await api.get<any>('/api/submissions/mine');
-      const sub = res.data.find((s: any) => s.assignment_id === id);
+      const list = Array.isArray(res) ? res : (res?.items ?? res?.data ?? []);
+      const sub = list.find((s: any) => s.assignment_id === id);
+      if (sub && !sub.assignment && sub.assignment_title) {
+        sub.assignment = {
+          title: sub.assignment_title,
+          subject: sub.assignment_subject,
+          due_date: sub.assignment_due_date,
+          instructions: sub.assignment_instructions,
+        };
+      }
       setData(sub);
-      if (sub?.content) setContent(sub.content);
+      const initialContent = sub?.content_text ?? sub?.content;
+      if (initialContent) setContent(initialContent);
     } catch (err) {
       console.error(err);
     } finally {
@@ -30,7 +40,7 @@ export default function StudentAssignmentDetailPage() {
 
   const handleUpdate = async (state: string) => {
     try {
-      await api.put<any>(`/api/submissions/${data.id}`, { state, content });
+      await api.put<any>(`/api/submissions/${data.id}`, { state, content_text: content });
       fetchData();
     } catch (err) {
       console.error(err);
@@ -40,7 +50,7 @@ export default function StudentAssignmentDetailPage() {
 
   const handleBlock = async () => {
     try {
-      await api.put<any>(`/api/submissions/${data.id}`, { state: 'BLOCKED', content: blockReason });
+      await api.put<any>(`/api/submissions/${data.id}`, { state: 'BLOCKED', blocked_reason: blockReason });
       setShowBlock(false);
       fetchData();
     } catch (err) {
@@ -105,7 +115,7 @@ export default function StudentAssignmentDetailPage() {
         {state === 'COMPLETED' && (
           <div className="mt-6 p-4 bg-green-50 border border-green-200 rounded-lg">
             <h3 className="text-green-800 font-bold mb-2">Completed!</h3>
-            <div className="text-gray-700 bg-white p-4 rounded border border-green-100">{data.content}</div>
+            <div className="text-gray-700 bg-white p-4 rounded border border-green-100">{data.content_text || data.content}</div>
           </div>
         )}
       </div>
@@ -117,7 +127,7 @@ export default function StudentAssignmentDetailPage() {
             {data.feedback.map((fb: any, i: number) => (
               <div key={i} className="p-4 bg-blue-50 border border-blue-100 rounded-lg">
                 <div className="text-sm font-semibold text-blue-900 mb-1">{new Date(fb.created_at).toLocaleString()}</div>
-                <div className="text-gray-800">{fb.text}</div>
+                <div className="text-gray-800">{fb.content || fb.text}</div>
               </div>
             ))}
           </div>

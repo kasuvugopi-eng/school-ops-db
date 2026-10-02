@@ -21,8 +21,9 @@ export default function AdminTeachersPage() {
           api.get<any>('/api/classes')
         ]);
         // Mocked from dashboard or actual endpoint
-        setTeachers(dashRes.data?.recent_teachers || []);
-        setClasses(classRes.data || []);
+        const recentTeachers = dashRes?.recent_teachers ?? dashRes?.data?.recent_teachers;
+        setTeachers(Array.isArray(recentTeachers) ? recentTeachers : (recentTeachers?.items ?? []));
+        setClasses(Array.isArray(classRes) ? classRes : (classRes?.items ?? classRes?.data ?? []));
       } catch (err) {
         console.error(err);
       } finally {
@@ -37,13 +38,14 @@ export default function AdminTeachersPage() {
     try {
       const res = await api.post<any>('/api/invites', {
         role: formData.role,
-        class_id: formData.class_id || null
+        target_class_id: formData.class_id || null
       });
-      const link = `${window.location.origin}/invite/${res.data.token}`;
+      const token = res?.token ?? res?.data?.token;
+      const link = `${window.location.origin}/invite/${token}`;
       setInviteLink(link);
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
-      alert('Failed to generate invite');
+      alert(err.message || 'Failed to generate invite');
     }
   };
 

@@ -11,7 +11,7 @@ export default function AdminAuditPage() {
     async function load() {
       try {
         const res = await api.get<any>('/api/audit?page_size=50');
-        setAudit(res.data.items || []);
+        setAudit(Array.isArray(res) ? res : (res?.items || []));
       } catch (err) {
         console.error(err);
       } finally {
@@ -52,7 +52,7 @@ export default function AdminAuditPage() {
                   )}
                 </div>
                 <div className="text-sm text-gray-500 whitespace-nowrap">
-                  {new Date(event.timestamp).toLocaleString()}
+                  {new Date(event.created_at || event.timestamp).toLocaleString()}
                 </div>
               </div>
             </li>

@@ -16,8 +16,8 @@ export default function AdminDashboardPage() {
           api.get<any>('/api/dashboard'),
           api.get<any>('/api/audit?page_size=10')
         ]);
-        setData(dashRes.data);
-        setAudit(auditRes.data.items || []);
+        setData(dashRes);
+        setAudit(Array.isArray(auditRes) ? auditRes : (auditRes?.items ?? []));
       } catch (err) {
         console.error(err);
       } finally {
@@ -93,7 +93,7 @@ export default function AdminDashboardPage() {
                     <p className="text-xs text-gray-500">Resource: {event.resource_type} ({event.resource_id})</p>
                   </div>
                   <div className="text-sm text-gray-500">
-                    {new Date(event.timestamp).toLocaleString()}
+                    {new Date(event.created_at || event.timestamp).toLocaleString()}
                   </div>
                 </div>
               </li>
