@@ -34,12 +34,12 @@ async def lifespan(app: FastAPI):
     scheduler.start()
     logger.info("Scheduler started with 15-minute reminder job.")
     
-    # Start Telegram bot (polling mode for local dev)
+    # Start Telegram bot
     try:
         from app.telegram.bot import start_bot, stop_bot
-        await start_bot()
+        await start_bot(app)
     except Exception as e:
-        print(f"Telegram bot failed to start: {e}")
+        logger.warning(f"Telegram bot failed to start: {e}")
     yield
     # Stop Telegram bot
     try:

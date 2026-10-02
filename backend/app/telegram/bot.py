@@ -32,18 +32,35 @@ def create_bot_app() -> Application | None:
     
     return app
 
-async def start_bot():
+import logging
+logger = logging.getLogger("uvicorn.error")
+
+async def start_bot(app=None):
     global bot_app
     bot_app = create_bot_app()
-    if bot_app:
-        await bot_app.initialize()
-        await bot_app.start()
-        # Use polling for local dev (no webhook needed)
+    if not bot_app:
+        logger.warning("TELEGRAM_BOT_TOKEN is empty. Skipping Telegram bot.")
+        return
+        
+    await bot_app.initialize()
+    await bot_app.start()
+    
+    webhook_route_exists = False
+    if app:
+        webhook_route_exists = any("webhook" in getattr(r, "path", "").lower() for r in app.routes)
+        
+    if settings.TELEGRAM_WEBHOOK_URL and webhook_route_exists:
+        await bot_app.bot.set_webhook(
+            url=settings.TELEGRAM_WEBHOOK_URL,
+            secret_token=settings.TELEGRAM_SECRET_TOKEN
+        )
+    else:
         await bot_app.updater.start_polling(drop_pending_updates=True)
 
 async def stop_bot():
     global bot_app
     if bot_app:
-        await bot_app.updater.stop()
+        if bot_app.updater and bot_app.updater.running:
+            await bot_app.updater.stop()
         await bot_app.stop()
         await bot_app.shutdown()
