@@ -40,7 +40,7 @@ export default function AdminAuditPage() {
                     {event.event_type}
                   </span>
                   <div className="mt-2 text-sm text-gray-900">
-                    <span className="font-semibold">Actor:</span> {event.actor_id}
+                    <span className="font-semibold">Actor:</span> {event.actor_name ? `${event.actor_name} (${event.actor_email})` : event.actor_id}
                   </div>
                   <div className="text-sm text-gray-900">
                     <span className="font-semibold">Resource:</span> {event.resource_type} ({event.resource_id})
@@ -52,7 +52,7 @@ export default function AdminAuditPage() {
                   )}
                 </div>
                 <div className="text-sm text-gray-500 whitespace-nowrap">
-                  {new Date(event.created_at || event.timestamp).toLocaleString()}
+                  {new Date(event.created_at || event.timestamp).toString() !== 'Invalid Date' ? new Date(event.created_at || event.timestamp).toLocaleString() : 'N/A'}
                 </div>
               </div>
             </li>

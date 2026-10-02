@@ -20,7 +20,7 @@ async def list_audit_events(
     current_user: User = Depends(require_role(UserRole.ADMIN)),
     db: AsyncSession = Depends(get_db)
 ):
-    query = select(AuditEvent).where(AuditEvent.school_id == current_user.school_id)
+    query = select(AuditEvent, User.full_name, User.email).outerjoin(User, AuditEvent.actor_id == User.id).where(AuditEvent.school_id == current_user.school_id)
     if event_type:
         query = query.where(AuditEvent.event_type == event_type)
     if resource_type:
@@ -29,13 +29,20 @@ async def list_audit_events(
     query = query.order_by(desc(AuditEvent.created_at)).offset((page - 1) * page_size).limit(page_size)
     result = await db.execute(query)
     
-    return [{
-        "id": str(e.id), "correlation_id": str(e.correlation_id) if e.correlation_id else None,
-        "event_type": e.event_type, "actor_id": str(e.actor_id) if e.actor_id else None,
-        "actor_type": e.actor_type, "resource_type": e.resource_type,
-        "resource_id": str(e.resource_id) if e.resource_id else None,
-        "details": e.details, "created_at": str(e.created_at)
-    } for e in result.scalars().all()]
+    response = []
+    for row in result.all():
+        e = row[0]
+        actor_name = row[1]
+        actor_email = row[2]
+        response.append({
+            "id": str(e.id), "correlation_id": str(e.correlation_id) if e.correlation_id else None,
+            "event_type": e.event_type, "actor_id": str(e.actor_id) if e.actor_id else None,
+            "actor_name": actor_name, "actor_email": actor_email,
+            "actor_type": e.actor_type, "resource_type": e.resource_type,
+            "resource_id": str(e.resource_id) if e.resource_id else None,
+            "details": e.details, "created_at": str(e.created_at)
+        })
+    return response
 
 @router.get("/{correlation_id}")
 async def get_events_by_correlation(
