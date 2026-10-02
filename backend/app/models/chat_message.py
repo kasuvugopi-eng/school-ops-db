@@ -17,6 +17,6 @@ class ChatMessage(Base):
     detected_intent: Mapped[Optional[str]] = mapped_column(String(100))
     intent_confidence: Mapped[Optional[float]] = mapped_column(Float)
     correlation_id: Mapped[Optional[uuid.UUID]] = mapped_column()
-    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     user = relationship("User")

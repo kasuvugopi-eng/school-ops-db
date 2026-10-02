@@ -14,7 +14,7 @@ class TeacherClassAssignment(Base):
     class_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("grade_classes.id"), nullable=False)
     subject: Mapped[Optional[str]] = mapped_column(String(255))
     is_primary: Mapped[bool] = mapped_column(Boolean, default=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     __table_args__ = (
         UniqueConstraint('teacher_id', 'class_id', name='uq_teacher_class'),

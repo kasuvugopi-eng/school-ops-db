@@ -18,10 +18,10 @@ class User(Base):
     role: Mapped[UserRole] = mapped_column(nullable=False)
     school_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("schools.id"))
     telegram_chat_id: Mapped[Optional[str]] = mapped_column(String(100), unique=True)
-    telegram_linked_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+    telegram_linked_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     school = relationship("School", back_populates="members")
     teaching_assignments = relationship("TeacherClassAssignment", back_populates="teacher")

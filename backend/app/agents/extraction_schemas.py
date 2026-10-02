@@ -21,10 +21,14 @@ class ParsedRosterRow(BaseModel):
     notes: Optional[str] = None
     flags: list[str] = Field(default_factory=list, description="Duplicate, missing data, ambiguous")
 
+class DuplicateCandidate(BaseModel):
+    row: int = Field(description="Row index of the duplicate")
+    name: str = Field(description="Name of the student that is duplicated")
+
 class ParsedRoster(BaseModel):
     rows: list[ParsedRosterRow]
     ambiguities: list[str] = Field(default_factory=list)
-    duplicate_candidates: list[dict] = Field(default_factory=list, description="Pairs of rows that might be duplicates")
+    duplicate_candidates: list[DuplicateCandidate] = Field(default_factory=list, description="Pairs of rows that might be duplicates")
 
 class DetectedIntent(BaseModel):
     intent: str = Field(description="One of the defined intent categories")

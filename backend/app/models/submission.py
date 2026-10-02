@@ -17,9 +17,9 @@ class Submission(Base):
     content_text: Mapped[Optional[str]] = mapped_column(Text)
     attachment_document_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("documents.id"))
     blocked_reason: Mapped[Optional[str]] = mapped_column(Text)
-    submitted_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
-    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+    submitted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     __table_args__ = (
         UniqueConstraint('assignment_id', 'student_id', name='uq_assignment_student'),

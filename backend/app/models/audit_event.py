@@ -20,4 +20,4 @@ class AuditEvent(Base):
     details: Mapped[dict] = mapped_column(JSON, default=dict)
     ip_address: Mapped[Optional[str]] = mapped_column(String(45))
     user_agent: Mapped[Optional[str]] = mapped_column(String(500))
-    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)

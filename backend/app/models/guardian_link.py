@@ -14,8 +14,8 @@ class GuardianLink(Base):
     student_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
     relationship_type: Mapped[str] = mapped_column("relationship", String(50), default="parent")
     opted_in: Mapped[bool] = mapped_column(Boolean, default=False)
-    opted_in_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
-    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    opted_in_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     __table_args__ = (
         UniqueConstraint('guardian_id', 'student_id', name='uq_guardian_student'),

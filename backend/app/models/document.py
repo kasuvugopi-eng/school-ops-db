@@ -20,7 +20,7 @@ class Document(Base):
     file_size: Mapped[Optional[int]] = mapped_column(Integer)
     owner_type: Mapped[Optional[str]] = mapped_column(String(50))
     owner_id: Mapped[Optional[uuid.UUID]] = mapped_column()
-    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     school = relationship("School")
     uploader = relationship("User")
