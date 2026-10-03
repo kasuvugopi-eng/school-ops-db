@@ -20,6 +20,7 @@ async def create_invite(data: CreateInviteRequest, current_user: User = Depends(
         role=data.role,
         target_class_id=data.target_class_id,
         target_student_id=data.target_student_id,
+        relationship=data.relationship,
         expires_hours=data.expires_hours
     )
     await log_event(db, "invite.created", school_id=current_user.school_id, actor_id=current_user.id, resource_type="invite", resource_id=invite.id)

@@ -8,6 +8,7 @@ class CreateInviteRequest(BaseModel):
     role: UserRole
     target_class_id: Optional[uuid.UUID] = None
     target_student_id: Optional[uuid.UUID] = None
+    relationship: Optional[str] = None
     expires_hours: int = 48
 
 class InviteResponse(BaseModel):

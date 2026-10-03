@@ -121,16 +121,21 @@ async def _parent_dashboard(db: AsyncSession, user: User):
     )
     children = []
     for link, child_name in links.all():
-        # Get child's submission stats
-        stats = await db.execute(
-            select(Submission.state, func.count(Submission.id))
+        assignments_res = await db.execute(
+            select(Assignment.title, Submission.state, Assignment.due_date)
             .join(Assignment, Submission.assignment_id == Assignment.id)
-            .where(Submission.student_id == link.student_id, Assignment.state == AssignmentState.ACTIVE)
-            .group_by(Submission.state)
+            .where(Submission.student_id == link.student_id)
+            .order_by(Assignment.due_date.asc().nulls_last())
         )
-        state_counts = {row[0].value: row[1] for row in stats.all()}
+        assignments = [{
+            "title": title,
+            "state": state.value,
+            "due_date": str(due) if due else None
+        } for title, state, due in assignments_res.all()]
+        
         children.append({
-            "name": child_name, "student_id": str(link.student_id),
-            "summary": state_counts
+            "full_name": child_name,
+            "student_id": str(link.student_id),
+            "assignments": assignments
         })
     return {"role": "guardian", "children": children}
