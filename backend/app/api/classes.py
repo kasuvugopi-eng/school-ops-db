@@ -99,7 +99,7 @@ async def assign_teacher(
     if grade_class.school_id != current_user.school_id:
         await log_event(db, "access.denied", school_id=current_user.school_id, actor_id=current_user.id, details={"reason": "cross-school class", "class_id": str(class_id)})
         await db.commit()
-        raise HTTPException(status_code=403, detail="Access denied")
+        raise HTTPException(status_code=404, detail="Access denied")
     
     # Verify teacher exists and is in same school
     teacher_result = await db.execute(select(User).where(User.id == teacher_id, User.role == UserRole.TEACHER))
@@ -109,7 +109,7 @@ async def assign_teacher(
     if teacher.school_id != current_user.school_id:
         await log_event(db, "access.denied", school_id=current_user.school_id, actor_id=current_user.id, details={"reason": "cross-school teacher", "teacher_id": str(teacher_id)})
         await db.commit()
-        raise HTTPException(status_code=403, detail="Access denied")
+        raise HTTPException(status_code=404, detail="Access denied")
     
     # Check if already assigned
     existing = await db.execute(
@@ -146,7 +146,7 @@ async def enroll_student(
     if grade_class.school_id != current_user.school_id:
         await log_event(db, "access.denied", school_id=current_user.school_id, actor_id=current_user.id, details={"reason": "cross-school class", "class_id": str(class_id)})
         await db.commit()
-        raise HTTPException(status_code=403, detail="Access denied")
+        raise HTTPException(status_code=404, detail="Access denied")
     
     student_result = await db.execute(select(User).where(User.id == student_id, User.role == UserRole.STUDENT))
     student = student_result.scalar_one_or_none()
@@ -155,16 +155,23 @@ async def enroll_student(
     if student.school_id != current_user.school_id:
         await log_event(db, "access.denied", school_id=current_user.school_id, actor_id=current_user.id, details={"reason": "cross-school student", "student_id": str(student_id)})
         await db.commit()
-        raise HTTPException(status_code=403, detail="Access denied")
+        raise HTTPException(status_code=404, detail="Access denied")
     
-    existing = await db.execute(
+    existing_enrollment = await db.execute(
         select(StudentEnrollment).where(
-            StudentEnrollment.student_id == student_id,
-            StudentEnrollment.class_id == class_id
+            StudentEnrollment.student_id == student_id
         )
     )
-    if existing.scalar_one_or_none():
-        return {"message": "Student enrolled", "student_id": str(student_id), "class_id": str(class_id)}
+    existing = existing_enrollment.scalar_one_or_none()
+    if existing:
+        if existing.class_id == class_id:
+            return {"message": "Student enrolled", "student_id": str(student_id), "class_id": str(class_id)}
+        else:
+            existing_class_res = await db.execute(select(GradeClass.name).where(GradeClass.id == existing.class_id))
+            existing_class_name = existing_class_res.scalar_one_or_none()
+            await log_event(db, "class.assign.rejected", school_id=current_user.school_id, actor_id=current_user.id, details={"reason": "already enrolled", "student_id": str(student_id), "existing_class_id": str(existing.class_id)})
+            await db.commit()
+            raise HTTPException(status_code=409, detail=f"Student already enrolled in {existing_class_name}")
     
     enrollment = StudentEnrollment(student_id=student_id, class_id=class_id)
     db.add(enrollment)

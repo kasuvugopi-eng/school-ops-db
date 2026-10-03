@@ -1,4 +1,4 @@
-﻿from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from typing import List, Optional
@@ -21,6 +21,7 @@ class UserListItem(BaseModel):
     status: str
     class_names: List[str]
     class_name: Optional[str] = None
+    guardians: Optional[List[dict]] = None
 
     class Config:
         from_attributes = True
@@ -39,20 +40,46 @@ async def get_users(
     result = []
     for u in user_records:
         classes = []
+        guardians = []
         if role == UserRole.TEACHER:
             res = await db.execute(
                 select(GradeClass.name)
                 .join(TeacherClassAssignment, GradeClass.id == TeacherClassAssignment.class_id)
-                .where(TeacherClassAssignment.teacher_id == u.id)
+                .where(
+                    TeacherClassAssignment.teacher_id == u.id,
+                    GradeClass.school_id == current_user.school_id
+                )
             )
             classes = [row[0] for row in res.all()]
         elif role == UserRole.STUDENT:
             res = await db.execute(
                 select(GradeClass.name)
                 .join(StudentEnrollment, GradeClass.id == StudentEnrollment.class_id)
-                .where(StudentEnrollment.student_id == u.id)
+                .where(
+                    StudentEnrollment.student_id == u.id,
+                    GradeClass.school_id == current_user.school_id
+                )
             )
             classes = [row[0] for row in res.all()]
+            
+            from app.models.guardian_link import GuardianLink
+            guardian_res = await db.execute(
+                select(User.full_name, GuardianLink.relationship_type)
+                .join(GuardianLink, User.id == GuardianLink.guardian_id)
+                .where(GuardianLink.student_id == u.id)
+            )
+            for row in guardian_res.all():
+                guardians.append({"name": row[0], "relationship": row[1]})
+        
+        elif role == UserRole.GUARDIAN:
+            from app.models.guardian_link import GuardianLink
+            student_res = await db.execute(
+                select(User.full_name, GuardianLink.relationship_type)
+                .join(GuardianLink, User.id == GuardianLink.student_id)
+                .where(GuardianLink.guardian_id == u.id)
+            )
+            for row in student_res.all():
+                guardians.append({"name": row[0], "relationship": row[1]})
         
         status = "Active" if u.is_active else "Inactive"
         
@@ -63,7 +90,8 @@ async def get_users(
             role=u.role.value,
             status=status,
             class_names=classes,
-            class_name=classes[0] if classes else None
+            class_name=classes[0] if classes else None,
+            guardians=guardians if (role == UserRole.STUDENT or role == UserRole.GUARDIAN) else None
         ))
         
     return result

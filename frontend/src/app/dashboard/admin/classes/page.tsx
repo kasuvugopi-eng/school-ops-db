@@ -32,7 +32,7 @@ export default function AdminClassesPage() {
         api.get<any>('/api/users?role=STUDENT')
       ]);
       setTeachers(Array.isArray(t) ? t : (t?.data ?? []));
-      setStudents(Array.isArray(s) ? s : (s?.data ?? []));
+      setStudents((Array.isArray(s) ? s : (s?.data ?? [])).filter((st: any) => !st.class_name));
     } catch (err) {
       console.error(err);
     }
