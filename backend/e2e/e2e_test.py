@@ -160,7 +160,12 @@ async def main():
                         subs = r_a_det.json().get("submissions", [])
                         if subs and len(subs) > 0:
                             state["submission_id"] = subs[0]["id"]
-                            record("4", "Assignment creation and submission auto-creation", "PASS", "201 Created and submissions found")
+                            # Activate the assignment so student can see it
+                            r_act = await client.put(f"/api/assignments/{state['assignment_id']}/state", params={"new_state": "ACTIVE"}, headers=headers_t)
+                            if r_act.status_code == 200:
+                                record("4", "Assignment creation and submission auto-creation", "PASS", "201 Created and submissions found")
+                            else:
+                                record("4", "Assignment creation and submission auto-creation", "FAIL", f"Activation failed: {r_act.status_code}")
                         else:
                             record("4", "Assignment creation and submission auto-creation", "FAIL", "No submissions auto-created")
                     else:

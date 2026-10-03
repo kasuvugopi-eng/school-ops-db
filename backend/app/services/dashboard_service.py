@@ -38,7 +38,14 @@ async def get_teacher_dashboard(db: AsyncSession, teacher_id: uuid.UUID, school_
     }
 
 async def get_student_dashboard(db: AsyncSession, student_id: uuid.UUID):
-    subs = await db.execute(select(Submission).where(Submission.student_id == student_id))
+    subs = await db.execute(
+        select(Submission)
+        .join(Assignment, Submission.assignment_id == Assignment.id)
+        .where(
+            Submission.student_id == student_id,
+            Assignment.state != AssignmentState.DRAFT
+        )
+    )
     # Overdue logic omitted for brevity
     return {
         "assignments": subs.scalars().all(),

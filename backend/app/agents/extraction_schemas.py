@@ -6,7 +6,7 @@ class ParsedAssignment(BaseModel):
     subject: Optional[str] = Field(None, description="Subject area")
     instructions: Optional[str] = Field(None, description="Full assignment instructions")
     due_date: Optional[str] = Field(None, description="Due date in ISO 8601 format YYYY-MM-DD")
-    target_class: Optional[str] = Field(None, description="Target class/grade name")
+    target_class_id: Optional[str] = Field(None, description="Target class/grade name")
     target_students: Optional[list[str]] = Field(None, description="Specific student names if individual/group")
     attachments_mentioned: Optional[list[str]] = Field(None, description="Referenced attachment filenames")
     constraints: Optional[list[str]] = Field(None, description="Special constraints or rules")

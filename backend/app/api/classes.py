@@ -173,10 +173,11 @@ async def enroll_student(
             await db.commit()
             raise HTTPException(status_code=409, detail=f"Student already enrolled in {existing_class_name}")
     
-    enrollment = StudentEnrollment(student_id=student_id, class_id=class_id)
-    db.add(enrollment)
+    from app.services.class_service import enroll_student_in_class
+    enrollment = await enroll_student_in_class(db, student_id, class_id)
     await log_event(db, "class.assign", school_id=current_user.school_id,
                     actor_id=current_user.id, resource_type="student_enrollment",
                     resource_id=enrollment.id, details={"student_id": str(student_id), "class_id": str(class_id)})
+    # Commit is already done in enroll_student_in_class, but we can commit the log_event
     await db.commit()
     return {"message": "Student enrolled", "student_id": str(student_id), "class_id": str(class_id)}

@@ -23,14 +23,24 @@ async def create_assignment(db: AsyncSession, data: dict, user: dict):
     assignment = Assignment(**data, created_by=user.id, school_id=user.school_id)
     db.add(assignment)
     await db.flush()
+    await log_event(db, "assignment.created", school_id=user.school_id, actor_id=user.id, resource_type="assignment", resource_id=assignment.id)
     
+    # Get existing submission student IDs for idempotency
+    existing_subs_result = await db.execute(select(Submission.student_id).where(Submission.assignment_id == assignment.id))
+    existing_student_ids = {s_id for s_id in existing_subs_result.scalars()}
+
     if assignment.target_type == AssignmentTargetType.CLASS and assignment.target_class_id:
         students = await get_students_for_class(db, assignment.target_class_id)
         for s in students:
-            db.add(Submission(assignment_id=assignment.id, student_id=s.id, state=SubmissionState.NOT_STARTED))
-    elif assignment.target_type == AssignmentTargetType.INDIVIDUAL and assignment.target_student_ids:
-        for sid in assignment.target_student_ids:
-            db.add(Submission(assignment_id=assignment.id, student_id=uuid.UUID(sid), state=SubmissionState.NOT_STARTED))
+            if s.id not in existing_student_ids:
+                db.add(Submission(assignment_id=assignment.id, student_id=s.id, state=SubmissionState.NOT_STARTED))
+                existing_student_ids.add(s.id)
+    elif assignment.target_type in (AssignmentTargetType.INDIVIDUAL, AssignmentTargetType.GROUP) and assignment.target_student_ids:
+        for sid_str in assignment.target_student_ids:
+            sid = uuid.UUID(sid_str) if isinstance(sid_str, str) else sid_str
+            if sid not in existing_student_ids:
+                db.add(Submission(assignment_id=assignment.id, student_id=sid, state=SubmissionState.NOT_STARTED))
+                existing_student_ids.add(sid)
             
     await db.commit()
     await db.refresh(assignment)
@@ -62,7 +72,8 @@ async def update_assignment_state(db: AsyncSession, assignment_id: uuid.UUID, ne
     assignment.state = new_state
     await db.commit()
     await db.refresh(assignment)
-    await log_event(db, correlation_id=uuid.uuid4(), school_id=assignment.school_id, actor_id=user.id, actor_type="user", event_type="assignment.state_updated", resource_type="assignment", resource_id=assignment.id, details={"new_state": new_state.value})
+    event_name = "assignment.activated" if new_state == AssignmentState.ACTIVE else "assignment.state_updated"
+    await log_event(db, correlation_id=uuid.uuid4(), school_id=assignment.school_id, actor_id=user.id, actor_type="user", event_type=event_name, resource_type="assignment", resource_id=assignment.id, details={"new_state": new_state.value})
     return assignment
 
 async def get_assignment_with_submissions(db: AsyncSession, assignment_id: uuid.UUID):

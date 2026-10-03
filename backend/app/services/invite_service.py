@@ -111,12 +111,8 @@ async def accept_invite(
             if existing_enrollment.class_id != invite.target_class_id:
                 raise HTTPException(status_code=409, detail="Student is already enrolled in a different class")
         else:
-            enrollment = StudentEnrollment(
-                student_id=user.id,
-                class_id=invite.target_class_id
-            )
-            db.add(enrollment)
-            await db.flush()
+            from app.services.class_service import enroll_student_in_class
+            enrollment = await enroll_student_in_class(db, user.id, invite.target_class_id)
             from app.services.audit_service import log_event
             await log_event(db, "student.enrolled", school_id=user.school_id, actor_id=user.id, resource_type="enrollment", resource_id=enrollment.id)
             

@@ -31,45 +31,20 @@ async def create_assignment(
         if current_user.role == UserRole.TEACHER:
             await assert_teacher_of_class(db, current_user, data.target_class_id)
     
-    assignment = Assignment(
-        school_id=current_user.school_id,
-        created_by=current_user.id,
-        title=data.title,
-        subject=data.subject,
-        instructions=data.instructions,
-        due_date=data.due_date,
-        target_type=data.target_type,
-        target_class_id=data.target_class_id,
-        target_student_ids=data.target_student_ids or [],
-        state=AssignmentState.DRAFT
-    )
-    db.add(assignment)
-    await db.flush()
+    from app.services.assignment_service import create_assignment as create_assignment_service
     
-    # Auto-create submissions for target students
-    if assignment.target_type == AssignmentTargetType.CLASS and assignment.target_class_id:
-        enrollments = await db.execute(
-            select(StudentEnrollment).where(StudentEnrollment.class_id == assignment.target_class_id)
-        )
-        for enrollment in enrollments.scalars().all():
-            db.add(Submission(
-                assignment_id=assignment.id,
-                student_id=enrollment.student_id,
-                state=SubmissionState.NOT_STARTED
-            ))
-    elif assignment.target_student_ids:
-        for sid in assignment.target_student_ids:
-            db.add(Submission(
-                assignment_id=assignment.id,
-                student_id=uuid.UUID(sid) if isinstance(sid, str) else sid,
-                state=SubmissionState.NOT_STARTED
-            ))
+    assignment_data = {
+        "title": data.title,
+        "subject": data.subject,
+        "instructions": data.instructions,
+        "due_date": data.due_date,
+        "target_type": data.target_type,
+        "target_class_id": data.target_class_id,
+        "target_student_ids": data.target_student_ids or [],
+        "state": AssignmentState.DRAFT
+    }
     
-    await log_event(db, "assignment.created", school_id=current_user.school_id,
-                    actor_id=current_user.id, resource_type="assignment",
-                    resource_id=assignment.id, details={"title": data.title})
-    await db.commit()
-    await db.refresh(assignment)
+    assignment = await create_assignment_service(db, assignment_data, current_user)
     
     return {
         "id": str(assignment.id), "title": assignment.title, "subject": assignment.subject,

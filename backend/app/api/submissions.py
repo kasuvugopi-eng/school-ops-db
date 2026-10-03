@@ -6,7 +6,7 @@ from sqlalchemy import select
 from app.database import get_db
 from app.auth.dependencies import get_current_user, require_role
 from app.auth.permissions import assert_same_school
-from app.models.enums import UserRole, SubmissionState
+from app.models.enums import UserRole, SubmissionState, AssignmentState
 from app.models.user import User
 from app.models.submission import Submission
 from app.models.assignment import Assignment
@@ -36,6 +36,7 @@ async def list_my_submissions(
         select(Submission, Assignment.title, Assignment.subject, Assignment.due_date, Assignment.instructions)
         .join(Assignment, Submission.assignment_id == Assignment.id)
         .where(Submission.student_id == current_user.id)
+        .where(Assignment.state != AssignmentState.DRAFT)
         .order_by(Assignment.due_date.asc().nulls_last())
     )
     submissions = []

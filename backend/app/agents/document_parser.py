@@ -75,7 +75,7 @@ async def parse_assignment_document(text: str) -> ParsedAssignment:
         result.ambiguities.append("Title could not be determined")
     if not result.due_date:
         result.ambiguities.append("Due date not found or unclear")
-    if not result.target_class:
+    if not result.target_class_id:
         result.ambiguities.append("Target class could not be determined")
     return result
 

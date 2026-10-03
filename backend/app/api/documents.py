@@ -282,27 +282,46 @@ async def approve_parse(
         parsed = parse_result.parsed_data
         
         due_date_str = parsed.get("due_date")
-        due_date_dt = None
-        if due_date_str:
-            try:
+        if not due_date_str:
+            raise HTTPException(status_code=400, detail="due_date is required")
+        try:
+            if "T" in due_date_str:
+                due_date_dt = datetime.fromisoformat(due_date_str).replace(tzinfo=timezone.utc)
+            else:
                 due_date_dt = datetime.strptime(due_date_str, "%Y-%m-%d").replace(tzinfo=timezone.utc)
-            except ValueError:
-                pass
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid due_date format")
+            
+        target_class_id_str = parsed.get("target_class_id")
+        if not target_class_id_str:
+            raise HTTPException(status_code=400, detail="target_class_id is required")
+        try:
+            target_class_id = uuid.UUID(target_class_id_str)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid target_class_id")
+            
+        from app.models.grade_class import GradeClass
+        cls_result = await db.execute(select(GradeClass).where(GradeClass.id == target_class_id))
+        cls = cls_result.scalar_one_or_none()
+        if not cls or cls.school_id != doc.school_id:
+            await log_event(db, "access.denied", school_id=doc.school_id, actor_id=current_user.id, resource_type="school_class", resource_id=target_class_id)
+            await db.commit()
+            raise HTTPException(status_code=404, detail="Class not found")
                 
-        assignment = Assignment(
-            school_id=doc.school_id,
-            created_by=current_user.id,
-            title=parsed.get("title", "Untitled Assignment"),
-            subject=parsed.get("subject"),
-            instructions=parsed.get("instructions"),
-            due_date=due_date_dt,
-            target_type=AssignmentTargetType.CLASS,
-            state=AssignmentState.DRAFT,
-            source_document_id=doc.id
-        )
-        db.add(assignment)
-        await db.flush()
-        created_assignment = assignment
+        from app.services.assignment_service import create_assignment, update_assignment_state
+        assignment_data = {
+            "title": parsed.get("title", "Untitled Assignment"),
+            "subject": parsed.get("subject"),
+            "instructions": parsed.get("instructions"),
+            "due_date": due_date_dt,
+            "target_type": AssignmentTargetType.CLASS,
+            "target_class_id": target_class_id,
+            "state": AssignmentState.DRAFT,
+            "source_document_id": doc.id
+        }
+        
+        created_assignment = await create_assignment(db, assignment_data, current_user)
+        created_assignment = await update_assignment_state(db, created_assignment.id, AssignmentState.ACTIVE, current_user)
     
     await log_event(db, "document.approved", school_id=doc.school_id,
                     actor_id=current_user.id, resource_type="document_parse",
@@ -316,9 +335,15 @@ async def approve_parse(
     return response
 
 from pydantic import BaseModel
+from typing import Optional
 
 class ClarifyRequest(BaseModel):
-    response: str
+    title: Optional[str] = None
+    subject: Optional[str] = None
+    due_date: Optional[str] = None
+    target_class_id: Optional[str] = None
+    instructions: Optional[str] = None
+    response: Optional[str] = None
 
 @router.post("/{id}/clarify")
 async def clarify_parse(
@@ -342,32 +367,41 @@ async def clarify_parse(
     if not parse_result or parse_result.approval_state != ParseApprovalState.NEEDS_CLARIFICATION:
         raise HTTPException(status_code=400, detail="Document does not need clarification")
     
-    parse_result.clarification_response = req.response
+    if req.target_class_id:
+        from app.models.grade_class import GradeClass
+        try:
+            cls_uuid = uuid.UUID(req.target_class_id)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid target_class_id")
+        cls_result = await db.execute(select(GradeClass).where(GradeClass.id == cls_uuid))
+        cls = cls_result.scalar_one_or_none()
+        if not cls or cls.school_id != doc.school_id:
+            await log_event(db, "access.denied", school_id=doc.school_id, actor_id=current_user.id, resource_type="school_class", resource_id=cls_uuid)
+            await db.commit()
+            raise HTTPException(status_code=404, detail="Class not found")
     
-    try:
-        text = extract_text(doc.file_path, doc.mime_type or "text/plain")
-        text += f"\n\n[Clarification provided by user]: {req.response}"
-        
-        if doc.document_type == DocumentType.ASSIGNMENT_BRIEF:
-            parsed = await parse_assignment_document(text)
-        elif doc.document_type == DocumentType.ROSTER:
-            parsed = await parse_roster_document(text)
-            
-        parse_result.parsed_data = parsed.model_dump()
-        ambiguity_flags = getattr(parsed, "ambiguities", [])
-        
-        if doc.document_type == DocumentType.ASSIGNMENT_BRIEF and ambiguity_flags:
-            parse_result.ambiguity_flags = ambiguity_flags
-            parse_result.clarification_question = f"Please clarify: {'; '.join(ambiguity_flags)}"
-            parse_result.approval_state = ParseApprovalState.NEEDS_CLARIFICATION
-        else:
-            parse_result.ambiguity_flags = []
-            parse_result.approval_state = ParseApprovalState.PENDING
-            parse_result.clarification_question = None
-            
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Reparsing failed: {str(e)}")
-        
+    parsed_data = dict(parse_result.parsed_data or {})
+    if req.title is not None: parsed_data["title"] = req.title
+    if req.subject is not None: parsed_data["subject"] = req.subject
+    if req.due_date is not None: parsed_data["due_date"] = req.due_date
+    if req.target_class_id is not None: parsed_data["target_class_id"] = req.target_class_id
+    if req.instructions is not None: parsed_data["instructions"] = req.instructions
+    
+    parse_result.parsed_data = parsed_data
+    if req.response is not None:
+        parse_result.clarification_response = req.response
+
+    # Check deterministic required fields
+    has_title = bool(parsed_data.get("title"))
+    has_due = bool(parsed_data.get("due_date"))
+    has_class = bool(parsed_data.get("target_class_id"))
+
+    if has_title and has_due and has_class:
+        parse_result.approval_state = ParseApprovalState.PENDING
+    else:
+        parse_result.approval_state = ParseApprovalState.NEEDS_CLARIFICATION
+
+    await log_event(db, "document.clarified", school_id=doc.school_id, actor_id=current_user.id, resource_type="document_parse", resource_id=parse_result.id)
     await db.commit()
     await db.refresh(parse_result)
     

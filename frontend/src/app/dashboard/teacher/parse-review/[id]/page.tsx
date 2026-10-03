@@ -11,41 +11,68 @@ export default function ParseReviewPage() {
   const [loading, setLoading] = useState(true);
   const [formData, setFormData] = useState<any>({});
   const [submitting, setSubmitting] = useState(false);
+  const [classes, setClasses] = useState<any[]>([]);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  const fetchParseResult = async () => {
+    try {
+      const res = await api.get<any>(`/api/documents/${id}/parse-result`);
+      const parseData = res?.data ?? res;
+      setData(parseData);
+      setFormData(parseData?.parsed_data ?? {});
+      setErrorMsg(null);
+    } catch (err: any) {
+      console.error(err);
+      setErrorMsg(err.response?.data?.detail || 'Failed to load parse result');
+    }
+  };
 
   useEffect(() => {
     async function load() {
       try {
-        const res = await api.get<any>(`/api/documents/${id}/parse-result`);
-        const parseData = res?.data ?? res;
-        setData(parseData);
-        setFormData(parseData?.parsed_data ?? parseData?.fields ?? {});
-      } catch (err: any) {
+        const clsRes = await api.get<any>('/api/classes');
+        setClasses(clsRes?.data || clsRes || []);
+      } catch (err) {
         console.error(err);
-        alert(`Failed to load parse result: ${err.message || 'Unknown error'}`);
-      } finally {
-        setLoading(false);
       }
+      await fetchParseResult();
+      setLoading(false);
     }
     load();
   }, [id]);
 
   const handleApprove = async () => {
     setSubmitting(true);
+    setErrorMsg(null);
     try {
       await api.post<any>(`/api/documents/${id}/approve`);
-      alert('Approved successfully');
       router.back();
     } catch (err: any) {
       console.error(err);
-      const detail = err.response?.data?.detail || err.message || 'Unknown error';
-      alert(`Failed to approve: ${detail}`);
+      setErrorMsg(err.response?.data?.detail || err.message || 'Failed to approve');
     } finally {
       setSubmitting(false);
     }
   };
 
-  const handleReject = () => {
-    alert('Reject not yet implemented on the backend');
+  const handleClarify = async () => {
+    setSubmitting(true);
+    setErrorMsg(null);
+    try {
+      await api.post<any>(`/api/documents/${id}/clarify`, {
+        title: formData.title || null,
+        subject: formData.subject || null,
+        due_date: formData.due_date || null,
+        target_class_id: formData.target_class_id || null,
+        instructions: formData.instructions || null
+      });
+      await fetchParseResult();
+    } catch (err: any) {
+      console.error(err);
+      setErrorMsg(err.response?.data?.detail || err.message || 'Failed to clarify');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   if (loading) return <div className="p-6">Loading...</div>;
@@ -54,6 +81,8 @@ export default function ParseReviewPage() {
   const confidence = data.confidence_notes?.overall_confidence 
     ? Math.round(data.confidence_notes.overall_confidence * 100) 
     : 0;
+
+  const needsClarification = data.approval_state === 'NEEDS_CLARIFICATION';
 
   return (
     <div className="max-w-3xl mx-auto space-y-6">
@@ -64,57 +93,68 @@ export default function ParseReviewPage() {
         </div>
       </div>
       
-      {data.confidence_notes && Object.keys(data.confidence_notes).length > 1 && (
-        <div className="bg-blue-50 text-blue-800 p-4 rounded-md text-sm border border-blue-200">
-          <p className="font-medium mb-1">Confidence Notes:</p>
-          <ul className="list-disc pl-5">
-            {Object.entries(data.confidence_notes).map(([k, v]) => (
-              k !== 'overall_confidence' && <li key={k}>{k}: {String(v)}</li>
-            ))}
-          </ul>
+      {errorMsg && (
+        <div className="bg-red-50 text-red-800 p-4 rounded-md text-sm border border-red-200">
+          {errorMsg}
         </div>
       )}
 
-      <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 space-y-6">
-        {Object.entries(formData).map(([key, value]: [string, any]) => {
-          const isAmbiguous = data.ambiguity_flags?.includes(key);
-          return (
-            <div key={key} className={`p-4 rounded-lg border ${isAmbiguous ? 'bg-yellow-50 border-yellow-200' : 'border-gray-100'}`}>
-              <div className="flex items-center gap-2 mb-2">
-                <label className="block text-sm font-medium text-gray-700 capitalize">{key.replace('_', ' ')}</label>
-                {isAmbiguous && <span className="text-yellow-600 text-xs font-bold flex items-center gap-1">⚠️ Please verify</span>}
-              </div>
-              {key === 'instructions' || key === 'description' ? (
-                <textarea 
-                  value={value || ''} 
-                  onChange={e => setFormData({...formData, [key]: e.target.value})}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md bg-white"
-                  rows={4}
-                />
-              ) : (
-                <input 
-                  type={key === 'due_date' ? 'datetime-local' : 'text'}
-                  value={value || ''} 
-                  onChange={e => setFormData({...formData, [key]: e.target.value})}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md bg-white"
-                />
-              )}
-            </div>
-          );
-        })}
+      {data.clarification_question && needsClarification && (
+        <div className="bg-yellow-50 text-yellow-800 p-4 rounded-md text-sm border border-yellow-200">
+          <p className="font-medium mb-1">Clarification Required:</p>
+          <p>{data.clarification_question}</p>
+          <p className="mt-2 text-xs text-yellow-700">Please provide the missing details or correct ambiguous fields and save answers.</p>
+        </div>
+      )}
 
-        <div className="flex justify-between items-center pt-4">
-          <button 
-            onClick={handleReject} 
-            disabled={submitting}
-            className="px-4 py-2 border border-red-300 text-red-700 rounded-md hover:bg-red-50 disabled:opacity-50"
-          >
-            Reject
-          </button>
-          <div className="flex gap-3">
-            <button onClick={() => router.back()} disabled={submitting} className="px-4 py-2 border border-gray-300 rounded-md text-gray-700">Cancel</button>
-            <button onClick={handleApprove} disabled={submitting} className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50">Approve</button>
-          </div>
+      <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 space-y-4">
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Title</label>
+          <input type="text" value={formData.title || ''} onChange={e => setFormData({...formData, title: e.target.value})} disabled={data.approval_state === 'APPROVED'} className="w-full px-3 py-2 border border-gray-300 rounded-md disabled:bg-gray-100" />
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Subject</label>
+          <input type="text" value={formData.subject || ''} onChange={e => setFormData({...formData, subject: e.target.value})} disabled={data.approval_state === 'APPROVED'} className="w-full px-3 py-2 border border-gray-300 rounded-md disabled:bg-gray-100" />
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Due Date</label>
+          <input type="datetime-local" value={formData.due_date || ''} onChange={e => setFormData({...formData, due_date: e.target.value})} disabled={data.approval_state === 'APPROVED'} className="w-full px-3 py-2 border border-gray-300 rounded-md disabled:bg-gray-100" />
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Target Class</label>
+          <select value={formData.target_class_id || ''} onChange={e => setFormData({...formData, target_class_id: e.target.value})} disabled={data.approval_state === 'APPROVED'} className="w-full px-3 py-2 border border-gray-300 rounded-md disabled:bg-gray-100">
+            <option value="">Select a class...</option>
+            {classes.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Instructions</label>
+          <textarea value={formData.instructions || ''} onChange={e => setFormData({...formData, instructions: e.target.value})} disabled={data.approval_state === 'APPROVED'} className="w-full px-3 py-2 border border-gray-300 rounded-md disabled:bg-gray-100" rows={4} />
+        </div>
+
+        <div className="flex justify-end gap-3 pt-4">
+          <button onClick={() => router.back()} disabled={submitting} className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50">Cancel</button>
+          
+          {data.approval_state === 'APPROVED' ? (
+            <span className="px-4 py-2 text-green-700 font-medium">Already approved</span>
+          ) : (
+            <>
+              <button 
+                onClick={handleClarify} 
+                disabled={submitting || (data.approval_state !== 'NEEDS_CLARIFICATION' && data.approval_state !== 'PENDING')} 
+                className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:opacity-50"
+              >
+                Save answers
+              </button>
+              <button 
+                onClick={handleApprove} 
+                disabled={submitting || data.approval_state !== 'PENDING'} 
+                className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50 disabled:bg-gray-400"
+              >
+                Approve
+              </button>
+            </>
+          )}
         </div>
       </div>
     </div>
