@@ -4,6 +4,6 @@ __pycache__/
 node_modules/
 .next/
 backend/uploads/
-backend/scratch_e2e/
+
 frontend-scaffold/
 results.json
