@@ -1,16 +1,22 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { usePathname, useRouter } from 'next/navigation';
 import api from '@/lib/api';
 import FileUpload from '@/components/ui/FileUpload';
 import StatusBadge from '@/components/ui/StatusBadge';
 import Link from 'next/link';
 
 export default function AdminDocumentsPage() {
+  const pathname = usePathname();
+  const router = useRouter();
+  const isTeacher = pathname?.includes('/teacher');
+
   const [documents, setDocuments] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
-  const [docType, setDocType] = useState('POLICY');
+  const [parsingId, setParsingId] = useState<string | null>(null);
+  const [docType, setDocType] = useState(isTeacher ? 'ASSIGNMENT_BRIEF' : 'POLICY');
 
   const fetchDocs = async () => {
     try {
@@ -23,7 +29,10 @@ export default function AdminDocumentsPage() {
     }
   };
 
-  useEffect(() => { fetchDocs(); }, []);
+  useEffect(() => { 
+    setDocType(isTeacher ? 'ASSIGNMENT_BRIEF' : 'POLICY');
+    fetchDocs(); 
+  }, [isTeacher]);
 
   const handleUpload = async (file: File) => {
     setUploading(true);
@@ -31,23 +40,60 @@ export default function AdminDocumentsPage() {
       // @ts-ignore
       await api.uploadFile<any>('/api/documents/upload', file, { document_type: docType });
       fetchDocs();
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
-      alert('Upload failed');
+      alert(`Upload failed: ${err.message || 'Unknown error'}`);
     } finally {
       setUploading(false);
     }
   };
 
   const handleParse = async (id: string) => {
+    setParsingId(id);
     try {
-      await api.post<any>(`/api/documents/${id}/parse`);
-      alert('Parse job triggered');
-      fetchDocs();
-    } catch (err) {
+      const res = await api.post<any>(`/api/documents/${id}/parse`);
+      const data = res?.data ?? res;
+      await fetchDocs();
+      router.push(`/dashboard/${isTeacher ? 'teacher' : 'admin'}/parse-review/${id}`);
+    } catch (err: any) {
       console.error(err);
-      alert('Parse failed');
+      const detail = err.response?.data?.detail || err.message || 'Unknown error';
+      alert(`Parse failed: ${detail}`);
+    } finally {
+      setParsingId(null);
     }
+  };
+
+  const docTypes = isTeacher
+    ? [
+        { value: 'ASSIGNMENT_BRIEF', label: 'Assignment Brief' },
+        { value: 'CLASS_MATERIAL', label: 'Class Material' },
+      ]
+    : [
+        { value: 'ROSTER', label: 'Class Roster' },
+        { value: 'POLICY', label: 'School Policy' },
+        { value: 'CLASS_MATERIAL', label: 'Class Material' },
+      ];
+
+  const getDocTypeLabel = (type: string) => {
+    const map: Record<string, string> = {
+      ASSIGNMENT_BRIEF: 'Assignment Brief',
+      ROSTER: 'Class Roster',
+      POLICY: 'School Policy',
+      CLASS_MATERIAL: 'Class Material',
+    };
+    return map[type] || type;
+  };
+
+  const getStatusLabel = (state: string) => {
+    const map: Record<string, string> = {
+      UPLOADED: 'Uploaded',
+      PENDING: 'Pending review',
+      NEEDS_CLARIFICATION: 'Needs clarification',
+      APPROVED: 'Approved',
+      REJECTED: 'Rejected'
+    };
+    return map[state] || state;
   };
 
   return (
@@ -59,9 +105,9 @@ export default function AdminDocumentsPage() {
         <div className="mb-4">
           <label className="block text-sm font-medium text-gray-700 mb-1">Document Type</label>
           <select value={docType} onChange={e => setDocType(e.target.value)} className="w-full max-w-xs px-3 py-2 border border-gray-300 rounded-md">
-            <option value="POLICY">Policy / Guideline</option>
-            <option value="ROSTER">Class Roster</option>
-            <option value="CLASS_MATERIAL">Class Material</option>
+            {docTypes.map(t => (
+              <option key={t.value} value={t.value}>{t.label}</option>
+            ))}
           </select>
         </div>
         <FileUpload onFileSelect={handleUpload} loading={uploading} accept=".pdf,.txt,.docx" />
@@ -81,18 +127,31 @@ export default function AdminDocumentsPage() {
           <tbody className="bg-white divide-y divide-gray-200">
             {documents.map(doc => (
               <tr key={doc.id}>
-                <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{doc.filename}</td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{doc.document_type}</td>
+                <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{doc.original_filename}</td>
+                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{getDocTypeLabel(doc.document_type)}</td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{new Date(doc.created_at).toLocaleDateString()}</td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                  <StatusBadge state={doc.status || 'UPLOADED'} />
+                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
+                    {getStatusLabel(doc.approval_state || 'UPLOADED')}
+                  </span>
                 </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                  {doc.status === 'UPLOADED' && (
-                    <button onClick={() => handleParse(doc.id)} className="text-indigo-600 hover:text-indigo-900">Parse</button>
+                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 space-x-4">
+                  {!doc.approval_state && ['ASSIGNMENT_BRIEF', 'ROSTER'].includes(doc.document_type) && (
+                    <button 
+                      onClick={() => handleParse(doc.id)} 
+                      disabled={parsingId === doc.id}
+                      className="text-indigo-600 hover:text-indigo-900 disabled:opacity-50 font-medium"
+                    >
+                      {parsingId === doc.id ? 'Parsing...' : 'Parse'}
+                    </button>
                   )}
-                  {doc.status === 'PARSED' && (
-                    <Link href={`/dashboard/teacher/parse-review/${doc.id}`} className="text-green-600 hover:text-green-900">Review</Link>
+                  {doc.approval_state && (
+                    <Link 
+                      href={`/dashboard/${isTeacher ? 'teacher' : 'admin'}/parse-review/${doc.id}`} 
+                      className="text-green-600 hover:text-green-900 font-medium"
+                    >
+                      Review
+                    </Link>
                   )}
                 </td>
               </tr>

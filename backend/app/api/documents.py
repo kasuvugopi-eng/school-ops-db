@@ -79,12 +79,31 @@ async def list_documents(
         select(Document).where(Document.school_id == current_user.school_id)
         .order_by(Document.created_at.desc())
     )
-    return [{
-        "id": str(d.id), "document_type": d.document_type.value,
-        "original_filename": d.original_filename, "mime_type": d.mime_type,
-        "file_size": d.file_size, "uploaded_by": str(d.uploaded_by),
-        "created_at": str(d.created_at)
-    } for d in result.scalars().all()]
+    docs = result.scalars().all()
+    
+    docs_out = []
+    for d in docs:
+        pr_result = await db.execute(
+            select(DocumentParseResult)
+            .where(DocumentParseResult.document_id == d.id)
+            .order_by(DocumentParseResult.created_at.desc())
+            .limit(1)
+        )
+        pr = pr_result.scalar_one_or_none()
+        
+        doc_dict = {
+            "id": str(d.id), "document_type": d.document_type.value,
+            "original_filename": d.original_filename, "mime_type": d.mime_type,
+            "file_size": d.file_size, "uploaded_by": str(d.uploaded_by),
+            "created_at": str(d.created_at)
+        }
+        if pr:
+            doc_dict["approval_state"] = pr.approval_state.value
+            doc_dict["parse_result_id"] = str(pr.id)
+            
+        docs_out.append(doc_dict)
+        
+    return docs_out
 
 @router.get("/{id}")
 async def get_document(
@@ -116,6 +135,10 @@ async def parse_document(
         raise HTTPException(status_code=404, detail="Document not found")
     assert_same_school(current_user, doc.school_id)
     
+    # Validate document type before text extraction
+    if doc.document_type not in (DocumentType.ASSIGNMENT_BRIEF, DocumentType.ROSTER):
+        raise HTTPException(status_code=400, detail="Parsing not supported for this document type")
+        
     # Extract text from document
     try:
         text = extract_text(doc.file_path, doc.mime_type or "text/plain")
@@ -123,26 +146,61 @@ async def parse_document(
         raise HTTPException(status_code=400, detail=f"Failed to extract text: {str(e)}")
     
     # Parse based on document type
-    if doc.document_type == DocumentType.ASSIGNMENT_BRIEF:
-        parsed = await parse_assignment_document(text)
-    elif doc.document_type == DocumentType.ROSTER:
-        parsed = await parse_roster_document(text)
-    else:
-        raise HTTPException(status_code=400, detail="Parsing not supported for this document type")
+    try:
+        if doc.document_type == DocumentType.ASSIGNMENT_BRIEF:
+            parsed = await parse_assignment_document(text)
+        elif doc.document_type == DocumentType.ROSTER:
+            parsed = await parse_roster_document(text)
+    except HTTPException:
+        raise
+    except Exception as e:
+        await log_event(db, "document.parse_failed", school_id=doc.school_id,
+                        actor_id=current_user.id, resource_type="document",
+                        resource_id=doc.id, details={"error": str(e)})
+        await db.commit()
+        raise HTTPException(status_code=500, detail=f"Parsing failed: {str(e)}")
     
-    parse_result = DocumentParseResult(
-        document_id=doc.id,
-        parsed_data=parsed.model_dump(),
-        confidence_notes={"overall_confidence": getattr(parsed, 'confidence', 0.0)},
-        ambiguity_flags=getattr(parsed, 'ambiguities', []),
-        approval_state=ParseApprovalState.PENDING,
-        model_used=settings.OPENAI_MODEL,
-        raw_model_response=str(parsed.model_dump())
+    ambiguity_flags = getattr(parsed, 'ambiguities', [])
+    approval_state = ParseApprovalState.PENDING
+    clarification_question = None
+    
+    if doc.document_type == DocumentType.ASSIGNMENT_BRIEF and ambiguity_flags:
+        approval_state = ParseApprovalState.NEEDS_CLARIFICATION
+        clarification_question = f"Please clarify: {'; '.join(ambiguity_flags)}"
+    
+    # Check if a parse result already exists
+    pr_result = await db.execute(
+        select(DocumentParseResult).where(DocumentParseResult.document_id == doc.id)
     )
-    db.add(parse_result)
-    await log_event(db, "document.parsed", school_id=doc.school_id,
-                    actor_id=current_user.id, resource_type="document_parse",
-                    resource_id=parse_result.id, details={"ambiguities": parse_result.ambiguity_flags})
+    parse_result = pr_result.scalar_one_or_none()
+    
+    is_new = False
+    if not parse_result:
+        parse_result = DocumentParseResult(document_id=doc.id)
+        db.add(parse_result)
+        is_new = True
+        
+    parse_result.parsed_data = parsed.model_dump()
+    parse_result.confidence_notes = {"overall_confidence": getattr(parsed, 'confidence', 0.0)}
+    parse_result.ambiguity_flags = ambiguity_flags
+    parse_result.approval_state = approval_state
+    parse_result.clarification_question = clarification_question
+    parse_result.model_used = settings.OPENAI_MODEL
+    parse_result.raw_model_response = str(parsed.model_dump())
+    
+    if is_new:
+        await log_event(db, "document.parsed", school_id=doc.school_id,
+                        actor_id=current_user.id, resource_type="document_parse",
+                        resource_id=parse_result.id, details={"ambiguities": parse_result.ambiguity_flags})
+    else:
+        await log_event(db, "document.reparsed", school_id=doc.school_id,
+                        actor_id=current_user.id, resource_type="document_parse",
+                        resource_id=parse_result.id, details={"ambiguities": parse_result.ambiguity_flags})
+                        
+    if approval_state == ParseApprovalState.NEEDS_CLARIFICATION:
+        await log_event(db, "document.clarification_requested", school_id=doc.school_id,
+                        actor_id=current_user.id, resource_type="document_parse",
+                        resource_id=parse_result.id, details={"question": clarification_question})
     await db.commit()
     await db.refresh(parse_result)
     
@@ -203,12 +261,15 @@ async def approve_parse(
     
     result = await db.execute(
         select(DocumentParseResult).where(
-            DocumentParseResult.document_id == id,
-            DocumentParseResult.approval_state == ParseApprovalState.PENDING
-        )
+            DocumentParseResult.document_id == id
+        ).order_by(DocumentParseResult.created_at.desc())
     )
     parse_result = result.scalar_one_or_none()
     if not parse_result:
+        raise HTTPException(status_code=404, detail="No parse result found")
+    if parse_result.approval_state == ParseApprovalState.NEEDS_CLARIFICATION:
+        raise HTTPException(status_code=409, detail="Document requires clarification before approval")
+    if parse_result.approval_state != ParseApprovalState.PENDING:
         raise HTTPException(status_code=404, detail="No pending parse result")
     
     parse_result.approval_state = ParseApprovalState.APPROVED
@@ -219,13 +280,22 @@ async def approve_parse(
     created_assignment = None
     if doc.document_type == DocumentType.ASSIGNMENT_BRIEF:
         parsed = parse_result.parsed_data
+        
+        due_date_str = parsed.get("due_date")
+        due_date_dt = None
+        if due_date_str:
+            try:
+                due_date_dt = datetime.strptime(due_date_str, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+            except ValueError:
+                pass
+                
         assignment = Assignment(
             school_id=doc.school_id,
             created_by=current_user.id,
             title=parsed.get("title", "Untitled Assignment"),
             subject=parsed.get("subject"),
             instructions=parsed.get("instructions"),
-            due_date=parsed.get("due_date"),
+            due_date=due_date_dt,
             target_type=AssignmentTargetType.CLASS,
             state=AssignmentState.DRAFT,
             source_document_id=doc.id
@@ -244,3 +314,66 @@ async def approve_parse(
         response["created_assignment_id"] = str(created_assignment.id)
         response["created_assignment_title"] = created_assignment.title
     return response
+
+from pydantic import BaseModel
+
+class ClarifyRequest(BaseModel):
+    response: str
+
+@router.post("/{id}/clarify")
+async def clarify_parse(
+    id: uuid.UUID,
+    req: ClarifyRequest,
+    current_user: User = Depends(require_role(UserRole.ADMIN, UserRole.TEACHER)),
+    db: AsyncSession = Depends(get_db)
+):
+    doc_result = await db.execute(select(Document).where(Document.id == id))
+    doc = doc_result.scalar_one_or_none()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+    assert_same_school(current_user, doc.school_id)
+    
+    result = await db.execute(
+        select(DocumentParseResult).where(
+            DocumentParseResult.document_id == id
+        ).order_by(DocumentParseResult.created_at.desc())
+    )
+    parse_result = result.scalar_one_or_none()
+    if not parse_result or parse_result.approval_state != ParseApprovalState.NEEDS_CLARIFICATION:
+        raise HTTPException(status_code=400, detail="Document does not need clarification")
+    
+    parse_result.clarification_response = req.response
+    
+    try:
+        text = extract_text(doc.file_path, doc.mime_type or "text/plain")
+        text += f"\n\n[Clarification provided by user]: {req.response}"
+        
+        if doc.document_type == DocumentType.ASSIGNMENT_BRIEF:
+            parsed = await parse_assignment_document(text)
+        elif doc.document_type == DocumentType.ROSTER:
+            parsed = await parse_roster_document(text)
+            
+        parse_result.parsed_data = parsed.model_dump()
+        ambiguity_flags = getattr(parsed, "ambiguities", [])
+        
+        if doc.document_type == DocumentType.ASSIGNMENT_BRIEF and ambiguity_flags:
+            parse_result.ambiguity_flags = ambiguity_flags
+            parse_result.clarification_question = f"Please clarify: {'; '.join(ambiguity_flags)}"
+            parse_result.approval_state = ParseApprovalState.NEEDS_CLARIFICATION
+        else:
+            parse_result.ambiguity_flags = []
+            parse_result.approval_state = ParseApprovalState.PENDING
+            parse_result.clarification_question = None
+            
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Reparsing failed: {str(e)}")
+        
+    await db.commit()
+    await db.refresh(parse_result)
+    
+    return {
+        "id": str(parse_result.id), "document_id": str(doc.id),
+        "parsed_data": parse_result.parsed_data,
+        "ambiguity_flags": parse_result.ambiguity_flags,
+        "approval_state": parse_result.approval_state.value
+    }
