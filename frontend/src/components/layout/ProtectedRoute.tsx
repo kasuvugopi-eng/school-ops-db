@@ -18,9 +18,9 @@ export default function ProtectedRoute({ children, allowedRoles }: { children: R
         const expectedBase = getDashboardRoute(user.role);
         // If they are under /dashboard, enforce they stay in their lane
         if (pathname && pathname.startsWith('/dashboard') && !pathname.startsWith(expectedBase)) {
-            router.push(expectedBase);
+          router.push(expectedBase);
         } else if (allowedRoles && !allowedRoles.includes(user.role)) {
-            router.push(expectedBase);
+          router.push(expectedBase);
         }
       }
     }
@@ -28,8 +28,8 @@ export default function ProtectedRoute({ children, allowedRoles }: { children: R
 
   if (isLoading || !user) {
     return (
-      <div className=\"min-h-screen flex items-center justify-center bg-gray-50\">
-        <div className=\"animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600\"></div>
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
       </div>
     );
   }
