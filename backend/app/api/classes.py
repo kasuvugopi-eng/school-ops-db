@@ -42,9 +42,11 @@ async def list_classes(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    result = await db.execute(
-        select(GradeClass).where(GradeClass.school_id == current_user.school_id)
-    )
+    query = select(GradeClass).where(GradeClass.school_id == current_user.school_id)
+    if current_user.role == UserRole.TEACHER:
+        query = query.join(TeacherClassAssignment, TeacherClassAssignment.class_id == GradeClass.id).where(TeacherClassAssignment.teacher_id == current_user.id)
+        
+    result = await db.execute(query)
     classes = result.scalars().all()
     response = []
     for c in classes:
@@ -67,6 +69,37 @@ async def list_classes(
             "student_count": s_count.scalar() or 0
         })
     return response
+
+@router.get("/{class_id}/students")
+async def get_class_students(
+    class_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    # Verify class belongs to same school
+    cls_result = await db.execute(select(GradeClass).where(GradeClass.id == class_id))
+    grade_class = cls_result.scalar_one_or_none()
+    if not grade_class or grade_class.school_id != current_user.school_id:
+        raise HTTPException(status_code=404, detail="Class not found")
+        
+    if current_user.role == UserRole.TEACHER:
+        tc_result = await db.execute(
+            select(TeacherClassAssignment)
+            .where(TeacherClassAssignment.teacher_id == current_user.id, TeacherClassAssignment.class_id == class_id)
+        )
+        if not tc_result.scalar_one_or_none():
+            from app.services.audit_service import log_event
+            await log_event(db, "access.denied", school_id=current_user.school_id, actor_id=current_user.id, resource_type="school_class", resource_id=class_id)
+            await db.commit()
+            raise HTTPException(status_code=403, detail="Not a teacher of this class")
+            
+    result = await db.execute(
+        select(User.id, User.email, User.full_name)
+        .join(StudentEnrollment, StudentEnrollment.student_id == User.id)
+        .where(StudentEnrollment.class_id == class_id, User.school_id == current_user.school_id)
+    )
+    students = result.all()
+    return [{"id": str(s.id), "email": s.email, "full_name": s.full_name} for s in students]
 
 @router.get("/{class_id}")
 async def get_class(

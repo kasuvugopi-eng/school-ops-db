@@ -26,11 +26,42 @@ async def create_assignment(
     current_user: User = Depends(require_role(UserRole.ADMIN, UserRole.TEACHER)),
     db: AsyncSession = Depends(get_db)
 ):
-    # Validate target class belongs to same school
+    # Validate target class belongs to same school and teacher is assigned
     if data.target_class_id:
         if current_user.role == UserRole.TEACHER:
-            await assert_teacher_of_class(db, current_user, data.target_class_id)
-    
+            tc_result = await db.execute(
+                select(TeacherClassAssignment)
+                .where(TeacherClassAssignment.teacher_id == current_user.id, TeacherClassAssignment.class_id == data.target_class_id)
+            )
+            if not tc_result.scalar_one_or_none():
+                await log_event(db, "access.denied", school_id=current_user.school_id, actor_id=current_user.id, resource_type="school_class", resource_id=data.target_class_id)
+                await db.commit()
+                raise HTTPException(status_code=403, detail="Not a teacher of this class")
+
+    # Validate GROUP / INDIVIDUAL
+    if data.target_type in (AssignmentTargetType.GROUP, AssignmentTargetType.INDIVIDUAL):
+        if not data.target_class_id or not data.target_student_ids:
+            raise HTTPException(status_code=400, detail="target_class_id and target_student_ids are required for GROUP/INDIVIDUAL")
+            
+        try:
+            student_uuids = [uuid.UUID(sid) if isinstance(sid, str) else sid for sid in data.target_student_ids]
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid student IDs")
+            
+        result = await db.execute(
+            select(StudentEnrollment.student_id)
+            .join(User, User.id == StudentEnrollment.student_id)
+            .where(
+                StudentEnrollment.class_id == data.target_class_id,
+                StudentEnrollment.student_id.in_(student_uuids),
+                User.school_id == current_user.school_id
+            )
+        )
+        valid_student_ids = {row[0] for row in result.all()}
+        
+        if len(valid_student_ids) != len(set(student_uuids)):
+            raise HTTPException(status_code=400, detail="One or more students are not enrolled in the specified class or school")
+            
     from app.services.assignment_service import create_assignment as create_assignment_service
     
     assignment_data = {
@@ -40,7 +71,7 @@ async def create_assignment(
         "due_date": data.due_date,
         "target_type": data.target_type,
         "target_class_id": data.target_class_id,
-        "target_student_ids": data.target_student_ids or [],
+        "target_student_ids": [str(sid) for sid in (data.target_student_ids or [])],
         "state": AssignmentState.DRAFT
     }
     

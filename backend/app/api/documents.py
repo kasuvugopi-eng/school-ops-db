@@ -301,12 +301,50 @@ async def approve_parse(
             raise HTTPException(status_code=400, detail="Invalid target_class_id")
             
         from app.models.grade_class import GradeClass
+        from app.models.teacher_class import TeacherClassAssignment
+        from app.models.student_enrollment import StudentEnrollment
+        
         cls_result = await db.execute(select(GradeClass).where(GradeClass.id == target_class_id))
         cls = cls_result.scalar_one_or_none()
         if not cls or cls.school_id != doc.school_id:
             await log_event(db, "access.denied", school_id=doc.school_id, actor_id=current_user.id, resource_type="school_class", resource_id=target_class_id)
             await db.commit()
             raise HTTPException(status_code=404, detail="Class not found")
+            
+        if current_user.role == UserRole.TEACHER:
+            tc_result = await db.execute(
+                select(TeacherClassAssignment)
+                .where(TeacherClassAssignment.teacher_id == current_user.id, TeacherClassAssignment.class_id == target_class_id)
+            )
+            if not tc_result.scalar_one_or_none():
+                await log_event(db, "access.denied", school_id=doc.school_id, actor_id=current_user.id, resource_type="school_class", resource_id=target_class_id)
+                await db.commit()
+                raise HTTPException(status_code=403, detail="Not a teacher of this class")
+
+        target_type = AssignmentTargetType(parsed.get("target_type", AssignmentTargetType.CLASS.value))
+        target_student_ids_raw = parsed.get("target_student_ids", [])
+        
+        if target_type in (AssignmentTargetType.GROUP, AssignmentTargetType.INDIVIDUAL):
+            if not target_student_ids_raw:
+                raise HTTPException(status_code=400, detail="target_student_ids required for GROUP/INDIVIDUAL")
+                
+            try:
+                student_uuids = [uuid.UUID(sid) if isinstance(sid, str) else sid for sid in target_student_ids_raw]
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Invalid student IDs")
+                
+            stu_res = await db.execute(
+                select(StudentEnrollment.student_id)
+                .join(User, User.id == StudentEnrollment.student_id)
+                .where(
+                    StudentEnrollment.class_id == target_class_id,
+                    StudentEnrollment.student_id.in_(student_uuids),
+                    User.school_id == current_user.school_id
+                )
+            )
+            valid_student_ids = {row[0] for row in stu_res.all()}
+            if len(valid_student_ids) != len(set(student_uuids)):
+                raise HTTPException(status_code=400, detail="One or more students are not enrolled in the specified class or school")
                 
         from app.services.assignment_service import create_assignment, update_assignment_state
         assignment_data = {
@@ -314,8 +352,9 @@ async def approve_parse(
             "subject": parsed.get("subject"),
             "instructions": parsed.get("instructions"),
             "due_date": due_date_dt,
-            "target_type": AssignmentTargetType.CLASS,
+            "target_type": target_type,
             "target_class_id": target_class_id,
+            "target_student_ids": [str(sid) for sid in target_student_ids_raw] if target_student_ids_raw else [],
             "state": AssignmentState.DRAFT,
             "source_document_id": doc.id
         }
