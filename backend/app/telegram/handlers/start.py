@@ -1,6 +1,6 @@
 from telegram import Update
 from telegram.ext import ContextTypes
-from sqlalchemy import select, update
+from sqlalchemy import select, update as sql_update
 from app.database import async_sessionmaker_instance
 from app.models.user import User
 from app.models.invite_token import InviteToken
@@ -61,7 +61,7 @@ async def handle_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         # Link the user
         await db.execute(
-            update(User).where(User.id == invite.used_by).values(
+            sql_update(User).where(User.id == invite.used_by).values(
                 telegram_chat_id=chat_id,
                 telegram_linked_at=datetime.now(timezone.utc)
             )

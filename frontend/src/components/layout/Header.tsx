@@ -1,6 +1,7 @@
 'use client';
 
 import { useAuth } from '@/lib/auth';
+import Link from 'next/link';
 
 export default function Header({ onMenuClick }: { onMenuClick: () => void }) {
   const { user } = useAuth();
@@ -26,9 +27,9 @@ export default function Header({ onMenuClick }: { onMenuClick: () => void }) {
               <div className="text-sm font-medium text-gray-900">{user.full_name}</div>
               <div className="text-xs text-gray-500 capitalize">{user.role}</div>
             </div>
-            <div className="h-10 w-10 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 font-bold">
+            <Link href="/dashboard/settings" className="h-10 w-10 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 font-bold hover:bg-indigo-200 transition-colors" title="Settings">
               {user.full_name?.charAt(0).toUpperCase()}
-            </div>
+            </Link>
           </div>
           <button
             onClick={() => {

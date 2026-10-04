@@ -13,6 +13,13 @@ export default function AdminTeachersPage() {
   const [inviteLink, setInviteLink] = useState('');
 
   const [formData, setFormData] = useState({ role: 'TEACHER', class_id: '' });
+  const [selectedGrade, setSelectedGrade] = useState('');
+  const [inviteName, setInviteName] = useState('');
+
+  const availableGrades = Array.from(new Set(classes.map(c => c.grade_level).filter(Boolean)));
+  const filteredClasses = selectedGrade 
+    ? classes.filter(c => String(c.grade_level) === String(selectedGrade))
+    : classes;
 
   useEffect(() => {
     async function load() {
@@ -41,7 +48,8 @@ export default function AdminTeachersPage() {
         target_class_id: formData.class_id || null
       });
       const token = res?.token ?? res?.data?.token;
-      const link = `${window.location.origin}/invite/${token}`;
+      const nameParam = inviteName.trim() ? `?name=${encodeURIComponent(inviteName.trim())}` : '';
+      const link = `${window.location.origin}/invite/${token}${nameParam}`;
       setInviteLink(link);
     } catch (err: any) {
       console.error(err);
@@ -96,14 +104,41 @@ export default function AdminTeachersPage() {
 {
   !inviteLink ? (
     <form onSubmit={handleInvite} className="space-y-4">
-      < div >
-      <label className="block text-sm font-medium text-gray-700 mb-1">Assign to Class (Optional)</label>
-        < select value = { formData.class_id } onChange = { e => setFormData({ ...formData, class_id: e.target.value })
-} className ="w-full px-3 py-2 border border-gray-300 rounded-md">
-  < option value ="">-- None --</option>
-{ classes.map(c => <option key={c.id} value={c.id}>{c.name}</option>) }
-              </select >
-            </div >
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1">Teacher Name (Optional / Pre-fill)</label>
+        <input
+          type="text"
+          value={inviteName}
+          onChange={e => setInviteName(e.target.value)}
+          placeholder="e.g. Ramesh Sir"
+          className="w-full px-3 py-2 border border-gray-300 rounded-md"
+        />
+      </div>
+
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1">Filter by Grade</label>
+        <select 
+          value={selectedGrade} 
+          onChange={e => {
+            setSelectedGrade(e.target.value);
+            setFormData({ ...formData, class_id: '' });
+          }} 
+          className="w-full px-3 py-2 border border-gray-300 rounded-md"
+        >
+          <option value="">All Grades</option>
+          {availableGrades.map((g, idx) => (
+            <option key={idx} value={g}>Grade {g}</option>
+          ))}
+        </select>
+      </div>
+
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1">Assign to Class (Optional)</label>
+        <select value={formData.class_id} onChange={e => setFormData({ ...formData, class_id: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded-md">
+          <option value="">-- None --</option>
+          {filteredClasses.map(c => <option key={c.id} value={c.id}>{c.name} {c.grade_level ? `(Grade ${c.grade_level})` : ''}</option>)}
+        </select>
+      </div>
   <div className="flex justify-end gap-3 mt-6">
     < button type ="button" onClick={() => setModalOpen(false)} className="px-4 py-2 border border-gray-300 rounded-md text-gray-700">Cancel</button>
       < button type ="submit" className="px-4 py-2 bg-indigo-600 text-white rounded-md">Generate Invite Link</button>
@@ -114,10 +149,16 @@ export default function AdminTeachersPage() {
     < p className ="text-sm text-gray-600">Share this link with the teacher to join:</p>
       < div className ="flex gap-2">
         < input type ="text" readOnly value={inviteLink} className="flex-1 px-3 py-2 border border-gray-300 rounded-md bg-gray-50 text-sm" />
-          < button onClick = { copyToClipboard } className ="px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300">Copy</button>
+          < button type="button" onClick = { (e) => { 
+            navigator.clipboard.writeText(inviteLink);
+            const btn = e.currentTarget;
+            const originalText = btn.innerText;
+            btn.innerText = 'Copied!';
+            setTimeout(() => { btn.innerText = originalText; }, 2000);
+          } } className ="px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300">Copy</button>
             </div >
   <div className="flex justify-end mt-4">
-    < button onClick = {() => setModalOpen(false)} className ="px-4 py-2 bg-indigo-600 text-white rounded-md">Done</button>
+    < button type="button" onClick = {() => { setModalOpen(false); setInviteLink(''); }} className ="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700">Done</button>
             </div >
           </div >
         )}

@@ -7,6 +7,7 @@ from app.models.enums import UserRole, AssignmentState, SubmissionState, ParseAp
 from app.models.user import User
 from app.models.assignment import Assignment
 from app.models.submission import Submission
+from app.models.document import Document
 from app.models.document_parse import DocumentParseResult
 from app.models.guardian_link import GuardianLink
 from app.models.teacher_class import TeacherClassAssignment
@@ -33,7 +34,14 @@ async def _admin_dashboard(db: AsyncSession, user: User):
     teachers = await db.execute(select(func.count(User.id)).where(User.school_id == school_id, User.role == UserRole.TEACHER))
     students = await db.execute(select(func.count(User.id)).where(User.school_id == school_id, User.role == UserRole.STUDENT))
     active_assignments = await db.execute(select(func.count(Assignment.id)).where(Assignment.school_id == school_id, Assignment.state == AssignmentState.ACTIVE))
-    pending_parses = await db.execute(select(func.count(DocumentParseResult.id)).where(DocumentParseResult.approval_state == ParseApprovalState.PENDING))
+    pending_parses = await db.execute(
+        select(func.count(DocumentParseResult.id))
+        .join(Document, DocumentParseResult.document_id == Document.id)
+        .where(
+            DocumentParseResult.approval_state == ParseApprovalState.PENDING,
+            Document.school_id == school_id
+        )
+    )
     
     return {
         "role": "admin",
@@ -56,6 +64,19 @@ async def _teacher_dashboard(db: AsyncSession, user: User):
         )
     )
     
+    # Submissions today
+    from datetime import datetime, time
+    today_start = datetime.combine(datetime.utcnow().date(), time.min)
+    submissions_today = await db.execute(
+        select(func.count(Submission.id))
+        .join(Assignment, Submission.assignment_id == Assignment.id)
+        .where(
+            Submission.submitted_at >= today_start,
+            Assignment.school_id == user.school_id,
+            (Assignment.created_by == user.id) | (Assignment.target_class_id.in_(class_ids) if class_ids else False)
+        )
+    )
+
     # Blocked students
     blocked = await db.execute(
         select(Submission, User.full_name, Assignment.title)
@@ -63,7 +84,8 @@ async def _teacher_dashboard(db: AsyncSession, user: User):
         .join(Assignment, Submission.assignment_id == Assignment.id)
         .where(
             Submission.state == SubmissionState.BLOCKED,
-            Assignment.school_id == user.school_id
+            Assignment.school_id == user.school_id,
+            (Assignment.created_by == user.id) | (Assignment.target_class_id.in_(class_ids) if class_ids else False)
         )
     )
     blocked_students = [{
@@ -78,7 +100,8 @@ async def _teacher_dashboard(db: AsyncSession, user: User):
         .join(Assignment, Submission.assignment_id == Assignment.id)
         .where(
             Submission.state.in_([SubmissionState.SUBMITTED, SubmissionState.RESUBMITTED]),
-            Assignment.school_id == user.school_id
+            Assignment.school_id == user.school_id,
+            (Assignment.created_by == user.id) | (Assignment.target_class_id.in_(class_ids) if class_ids else False)
         )
         .order_by(Submission.submitted_at.desc())
         .limit(10)
@@ -92,6 +115,7 @@ async def _teacher_dashboard(db: AsyncSession, user: User):
     return {
         "role": "teacher",
         "my_assignments": my_assignments.scalar() or 0,
+        "submissions_today": submissions_today.scalar() or 0,
         "blocked_students": blocked_students,
         "pending_reviews": pending_reviews
     }

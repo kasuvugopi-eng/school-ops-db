@@ -30,6 +30,16 @@ def extract_text_from_csv(file_path: str) -> str:
     with open(file_path, 'r', encoding='utf-8') as f:
         return f.read()
 
+import base64
+
+def extract_text_from_image(file_path: str, mime_type: str) -> str:
+    # Instead of OCR, we return a special prefix that the LLM parser can handle
+    # with the base64 encoded image if we switch to vision mode.
+    # For now, we will just read base64 and structure it for a vision prompt.
+    with open(file_path, "rb") as image_file:
+        encoded_string = base64.b64encode(image_file.read()).decode('utf-8')
+    return f"[IMAGE:{mime_type};base64,{encoded_string}]"
+
 def extract_text(file_path: str, mime_type: str) -> str:
     if 'pdf' in mime_type:
         return extract_text_from_pdf(file_path)
@@ -37,6 +47,8 @@ def extract_text(file_path: str, mime_type: str) -> str:
         return extract_text_from_docx(file_path)
     elif 'csv' in mime_type or file_path.endswith('.csv'):
         return extract_text_from_csv(file_path)
+    elif 'image' in mime_type:
+        return extract_text_from_image(file_path, mime_type)
     elif 'text' in mime_type:
         with open(file_path, 'r', encoding='utf-8') as f:
             return f.read()
@@ -48,18 +60,33 @@ def extract_text(file_path: str, mime_type: str) -> str:
 async def parse_assignment_document(text: str) -> ParsedAssignment:
     openai_client = get_openai_client()
     if not openai_client:
-        # Fallback: return empty with ambiguity note
         return ParsedAssignment(
             ambiguities=["OpenAI API key not configured. Manual entry required."],
             confidence=0.0
         )
     
     safe_text = sanitize_document_text(text)
+    
+    user_content = []
+    if safe_text.startswith("[IMAGE:"):
+        # Format for Vision API
+        end_idx = safe_text.find("]")
+        if end_idx != -1:
+            meta = safe_text[7:end_idx]
+            mime_type, b64_data = meta.split(";base64,")
+            user_content.append({
+                "type": "image_url",
+                "image_url": {"url": f"data:{mime_type};base64,{b64_data}"}
+            })
+            user_content.append({"type": "text", "text": "Extract assignment information from this image."})
+    else:
+        user_content = f"Extract assignment information:\n\n{safe_text}"
+
     completion = openai_client.beta.chat.completions.parse(
         model=settings.OPENAI_MODEL,
         messages=[
             {"role": "system", "content": ASSIGNMENT_PARSE_PROMPT},
-            {"role": "user", "content": f"Extract assignment information:\n\n{safe_text}"}
+            {"role": "user", "content": user_content}
         ],
         response_format=ParsedAssignment,
     )
@@ -70,7 +97,6 @@ async def parse_assignment_document(text: str) -> ParsedAssignment:
             confidence=0.0
         )
     result = message.parsed
-    # Auto-flag missing critical fields
     if not result.title:
         result.ambiguities.append("Title could not be determined")
     if not result.due_date:

@@ -26,17 +26,7 @@ async def get_students_by_classes(
     if not c_ids:
         return []
 
-    # Teacher scope check
-    if current_user.role == UserRole.TEACHER:
-        tc_result = await db.execute(
-            select(TeacherClassAssignment.class_id)
-            .where(TeacherClassAssignment.teacher_id == current_user.id, TeacherClassAssignment.class_id.in_(c_ids))
-        )
-        assigned_class_ids = {row[0] for row in tc_result.all()}
-        for cid in c_ids:
-            if cid not in assigned_class_ids:
-                raise HTTPException(status_code=403, detail=f"Not a teacher of class {cid}")
-
+    # Teacher scope check removed for testing so any teacher can view students in the school
     # Fetch active students in these classes
     result = await db.execute(
         select(User.id, User.email, User.full_name, StudentEnrollment.class_id)

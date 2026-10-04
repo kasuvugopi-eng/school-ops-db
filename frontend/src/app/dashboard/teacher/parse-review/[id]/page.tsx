@@ -18,13 +18,33 @@ export default function ParseReviewPage() {
   const [selectedClassIds, setSelectedClassIds] = useState<string[]>([]);
   const [selectedStudentIds, setSelectedStudentIds] = useState<Set<string>>(new Set());
 
-  const fetchParseResult = async () => {
+  const fetchParseResult = async (loadedClasses: any[]) => {
     try {
       const res = await api.get<any>(`/api/documents/${id}/parse-result`);
       const parseData = res?.data ?? res;
       setData(parseData);
       setFormData(parseData?.parsed_data ?? {});
-      setSelectedClassIds(parseData?.parsed_data?.class_ids || (parseData?.parsed_data?.target_class_id ? [parseData?.parsed_data?.target_class_id] : []));
+      
+      let initialClassIds: string[] = [];
+      const llmClassId = parseData?.parsed_data?.target_class_id;
+      if (llmClassId) {
+        // Check if it's already a valid UUID
+        const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(llmClassId);
+        if (isUUID) {
+          initialClassIds = [llmClassId];
+        } else {
+          // Try to match the string to a loaded class
+          const matchedClass = loadedClasses.find(c => 
+            c.name.toLowerCase().includes(llmClassId.toLowerCase()) || 
+            llmClassId.toLowerCase().includes(c.name.toLowerCase()) ||
+            (c.grade_level && llmClassId.includes(c.grade_level))
+          );
+          if (matchedClass) {
+            initialClassIds = [matchedClass.id];
+          }
+        }
+      }
+      setSelectedClassIds(parseData?.parsed_data?.class_ids || initialClassIds);
       setSelectedStudentIds(new Set(parseData?.parsed_data?.student_ids || []));
       setErrorMsg(null);
     } catch (err: any) {
@@ -35,13 +55,15 @@ export default function ParseReviewPage() {
 
   useEffect(() => {
     async function load() {
+      let fetchedClasses = [];
       try {
-        const clsRes = await api.get<any>('/api/teachers/me/classes');
-        setClasses(Array.isArray(clsRes) ? clsRes : (clsRes?.items ?? clsRes?.data ?? []));
+        const clsRes = await api.get<any>('/api/classes');
+        fetchedClasses = Array.isArray(clsRes) ? clsRes : (clsRes?.items ?? clsRes?.data ?? []);
+        setClasses(fetchedClasses);
       } catch (err) {
         console.error(err);
       }
-      await fetchParseResult();
+      await fetchParseResult(fetchedClasses);
       setLoading(false);
     }
     load();
@@ -89,12 +111,18 @@ export default function ParseReviewPage() {
     setErrorMsg(null);
     try {
       const studentIds = Array.from(selectedStudentIds);
+      let target_type = "CLASS";
+      if (selectedClassIds.length > 0 && studentIds.length > 0 && studentIds.length < students.length) {
+        target_type = studentIds.length === 1 ? "INDIVIDUAL" : "GROUP";
+      }
+      
       await api.post<any>(`/api/documents/${id}/clarify`, {
         title: formData.title || null,
         subject: formData.subject || null,
         due_date: formData.due_date || null,
-        class_ids: selectedClassIds.length > 0 ? selectedClassIds : null,
-        student_ids: studentIds.length > 0 ? studentIds : null,
+        target_class_id: selectedClassIds.length > 0 ? selectedClassIds[0] : null,
+        target_student_ids: studentIds.length > 0 ? studentIds : null,
+        target_type: target_type,
         instructions: formData.instructions || null
       });
       await fetchParseResult();
@@ -184,7 +212,7 @@ export default function ParseReviewPage() {
             <label className="block text-sm font-medium text-gray-700 mb-2">Target Classes</label>
             <div className={`border border-gray-200 rounded-md p-3 max-h-48 overflow-y-auto space-y-2 ${data.approval_state === 'APPROVED' ? 'bg-gray-100' : 'bg-gray-50'}`}>
               {classes.length === 0 ? (
-                <p className="text-sm text-gray-500">No classes assigned.</p>
+                <p className="text-sm text-gray-500">No classes found.</p>
               ) : (
                 classes.map(c => (
                   <label key={c.id} className="flex items-center gap-2">
@@ -195,7 +223,7 @@ export default function ParseReviewPage() {
                       disabled={data.approval_state === 'APPROVED'}
                       className="rounded text-indigo-600 focus:ring-indigo-500" 
                     />
-                    <span>{c.name}</span>
+                    <span>{c.grade_level ? `Grade ${c.grade_level} - ` : ''}{c.name}</span>
                   </label>
                 ))
               )}

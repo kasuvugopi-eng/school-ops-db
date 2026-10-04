@@ -14,8 +14,14 @@ export default function AdminStudentsPage() {
   const [inviteRole, setInviteRole] = useState('STUDENT');
   const [inviteLink, setInviteLink] = useState('');
   const [targetClassId, setTargetClassId] = useState('');
-  const [targetStudentId, setTargetStudentId] = useState('');
-  const [relationship, setRelationship] = useState('');
+  const [selectedGrade, setSelectedGrade] = useState('');
+  const [inviteName, setInviteName] = useState('');
+  const [copied, setCopied] = useState(false);
+
+  const availableGrades = Array.from(new Set(classes.map(c => c.grade_level).filter(Boolean)));
+  const filteredClasses = selectedGrade 
+    ? classes.filter(c => String(c.grade_level) === String(selectedGrade))
+    : classes;
   
   useEffect(() => {
     async function load() {
@@ -50,7 +56,8 @@ export default function AdminStudentsPage() {
       }
       const res = await api.post<any>('/api/invites', payload);
       const token = res?.token ?? res?.data?.token;
-      setInviteLink(`${window.location.origin}/invite/${token}`);
+      const nameParam = inviteName.trim() ? `?name=${encodeURIComponent(inviteName.trim())}` : '';
+      setInviteLink(`${window.location.origin}/invite/${token}${nameParam}`);
     } catch (err) {
       console.error(err);
       alert('Failed to generate invite');
@@ -142,15 +149,45 @@ export default function AdminStudentsPage() {
             <p className="text-sm text-gray-600">Generate an invite link for a new {inviteRole === 'STUDENT' ? 'student' : 'guardian'}.</p>
             
             {inviteRole === 'STUDENT' && (
-              <div>
-                <label className="block text-sm font-medium text-gray-700">Class</label>
-                <select required value={targetClassId} onChange={e => setTargetClassId(e.target.value)} className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm">
-                  <option value="">Select a class...</option>
-                  {classes.map(c => (
-                    <option key={c.id} value={c.id}>{c.name}</option>
-                  ))}
-                </select>
-              </div>
+              <>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Student Name (Optional / Pre-fill)</label>
+                  <input
+                    type="text"
+                    value={inviteName}
+                    onChange={e => setInviteName(e.target.value)}
+                    placeholder="e.g. Rahul Sharma"
+                    className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Filter by Grade</label>
+                  <select 
+                    value={selectedGrade} 
+                    onChange={e => {
+                      setSelectedGrade(e.target.value);
+                      setTargetClassId('');
+                    }} 
+                    className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                  >
+                    <option value="">All Grades</option>
+                    {availableGrades.map((g, idx) => (
+                      <option key={idx} value={g}>Grade {g}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Class</label>
+                  <select required value={targetClassId} onChange={e => setTargetClassId(e.target.value)} className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm">
+                    <option value="">Select a class...</option>
+                    {filteredClasses.map(c => (
+                      <option key={c.id} value={c.id}>{c.name} {c.grade_level ? `(Grade ${c.grade_level})` : ''}</option>
+                    ))}
+                  </select>
+                </div>
+              </>
             )}
 
             {inviteRole === 'GUARDIAN' && (
@@ -160,7 +197,7 @@ export default function AdminStudentsPage() {
                   <select required value={targetStudentId} onChange={e => setTargetStudentId(e.target.value)} className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm">
                     <option value="">Select a student...</option>
                     {students.map(s => (
-                      <option key={s.id} value={s.id}>{s.full_name}</option>
+                      <option key={s.id} value={s.id}>{s.full_name} {s.class_name ? `(${s.class_name})` : ''}</option>
                     ))}
                   </select>
                 </div>
@@ -187,7 +224,29 @@ export default function AdminStudentsPage() {
             <p className="text-sm text-gray-600">Share this link to join:</p>
             <div className="flex gap-2">
               <input type="text" readOnly value={inviteLink} className="flex-1 px-3 py-2 border border-gray-300 rounded-md bg-gray-50 text-sm" />
-              <button onClick={() => navigator.clipboard.writeText(inviteLink)} className="px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300">Copy</button>
+              <button 
+                type="button"
+                onClick={() => {
+                  navigator.clipboard.writeText(inviteLink);
+                  setCopied(true);
+                  setTimeout(() => setCopied(false), 2000);
+                }} 
+                className="px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300"
+              >
+                {copied ? 'Copied!' : 'Copy'}
+              </button>
+            </div>
+            <div className="flex justify-end mt-4">
+              <button 
+                type="button"
+                onClick={() => {
+                  setModalOpen(false);
+                  setInviteLink('');
+                }} 
+                className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700"
+              >
+                Done
+              </button>
             </div>
           </div>
         )}

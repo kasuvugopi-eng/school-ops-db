@@ -19,20 +19,16 @@ def validate_assignment_transition(current: AssignmentState, target: AssignmentS
         raise ValueError(f"Invalid transition from {current} to {target}")
     return True
 
-async def create_assignment(db: AsyncSession, data: dict, class_ids: list, user: dict):
-    assignment = Assignment(**data, created_by=user.id, school_id=user.school_id)
+async def create_assignment(db: AsyncSession, data: dict, target_class_id: uuid.UUID, user: dict):
+    data = {k: v for k, v in data.items() if k != "target_class_id"}
+    assignment = Assignment(**data, created_by=user.id, school_id=user.school_id, target_class_id=target_class_id)
     db.add(assignment)
     await db.flush()
-    
-    # Add classes
-    from app.models.grade_class import GradeClass
-    classes = await db.execute(select(GradeClass).where(GradeClass.id.in_(class_ids)))
-    assignment.classes.extend(classes.scalars().all())
     
     await log_event(db, "assignment.created", school_id=user.school_id, actor_id=user.id, resource_type="assignment", resource_id=assignment.id)
     
     from app.services.submission_service import create_submissions_for_assignment
-    await create_submissions_for_assignment(db, assignment.id, assignment.target_student_ids, class_ids)
+    await create_submissions_for_assignment(db, assignment.id, assignment.target_student_ids, [target_class_id])
     
     await db.commit()
     await db.refresh(assignment)
@@ -41,8 +37,7 @@ async def create_assignment(db: AsyncSession, data: dict, class_ids: list, user:
 async def list_assignments(db: AsyncSession, school_id: uuid.UUID, class_id: uuid.UUID = None, teacher_id: uuid.UUID = None, state: AssignmentState = None):
     query = select(Assignment).where(Assignment.school_id == school_id)
     if class_id:
-        from app.models.assignment import assignment_classes
-        query = query.join(assignment_classes).where(assignment_classes.c.class_id == class_id)
+        query = query.where(Assignment.target_class_id == class_id)
     if teacher_id: query = query.where(Assignment.created_by == teacher_id)
     if state: query = query.where(Assignment.state == state)
     result = await db.execute(query)

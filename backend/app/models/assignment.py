@@ -7,12 +7,6 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base
 from app.models.enums import AssignmentState, AssignmentTargetType
 
-assignment_classes = Table(
-    "assignment_classes",
-    Base.metadata,
-    Column("assignment_id", ForeignKey("assignments.id"), primary_key=True),
-    Column("class_id", ForeignKey("grade_classes.id"), primary_key=True)
-)
 
 class Assignment(Base):
     __tablename__ = "assignments"
@@ -25,6 +19,7 @@ class Assignment(Base):
     instructions: Mapped[Optional[str]] = mapped_column(Text)
     due_date: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     target_type: Mapped[AssignmentTargetType] = mapped_column(nullable=False)
+    target_class_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("grade_classes.id"))
     target_student_ids: Mapped[list] = mapped_column(JSON, default=list)
     state: Mapped[AssignmentState] = mapped_column(default=AssignmentState.DRAFT, nullable=False)
     source_document_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("documents.id"))
@@ -33,6 +28,6 @@ class Assignment(Base):
 
     school = relationship("School", back_populates="assignments")
     creator = relationship("User")
-    classes = relationship("GradeClass", secondary=assignment_classes, backref="assignments")
+    target_class = relationship("GradeClass")
     source_document = relationship("Document", foreign_keys=[source_document_id])
     submissions = relationship("Submission", back_populates="assignment")

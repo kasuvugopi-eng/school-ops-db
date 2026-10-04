@@ -10,7 +10,7 @@ class CreateAssignmentRequest(BaseModel):
     instructions: Optional[str] = None
     due_date: Optional[datetime] = None
     target_type: AssignmentTargetType
-    class_ids: List[uuid.UUID]
+    target_class_id: uuid.UUID
     student_ids: Optional[List[uuid.UUID]] = None
 
 class AssignmentResponse(BaseModel):
@@ -23,7 +23,7 @@ class AssignmentResponse(BaseModel):
     state: AssignmentState
     created_by: uuid.UUID
     created_at: datetime
-    class_ids: List[uuid.UUID] = []
+    target_class_id: Optional[uuid.UUID] = None
     submission_summary: Dict[str, int] = {}
     
     model_config = {"from_attributes": True}

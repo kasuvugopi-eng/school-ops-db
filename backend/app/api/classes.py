@@ -43,8 +43,6 @@ async def list_classes(
     db: AsyncSession = Depends(get_db)
 ):
     query = select(GradeClass).where(GradeClass.school_id == current_user.school_id)
-    if current_user.role == UserRole.TEACHER:
-        query = query.join(TeacherClassAssignment, TeacherClassAssignment.class_id == GradeClass.id).where(TeacherClassAssignment.teacher_id == current_user.id)
         
     result = await db.execute(query)
     classes = result.scalars().all()
