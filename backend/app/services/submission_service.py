@@ -53,3 +53,36 @@ async def get_submissions_for_assignment(db: AsyncSession, assignment_id: uuid.U
     # Would join with User for student names
     result = await db.execute(select(Submission).where(Submission.assignment_id == assignment_id))
     return result.scalars().all()
+
+async def create_submissions_for_assignment(db: AsyncSession, assignment_id: uuid.UUID, target_student_ids: list, class_ids: list):
+    # Get existing submission student IDs for idempotency
+    existing_subs_result = await db.execute(select(Submission.student_id).where(Submission.assignment_id == assignment_id))
+    existing_student_ids = {s_id for s_id in existing_subs_result.scalars()}
+    
+    if target_student_ids:
+        # Specific students
+        for sid_str in target_student_ids:
+            sid = uuid.UUID(sid_str) if isinstance(sid_str, str) else sid_str
+            if sid not in existing_student_ids:
+                db.add(Submission(assignment_id=assignment_id, student_id=sid, state=SubmissionState.NOT_STARTED))
+                existing_student_ids.add(sid)
+    else:
+        # All students in class_ids
+        from app.models.student_enrollment import StudentEnrollment
+        from app.models.user import User
+        from app.models.enums import UserRole
+        
+        result = await db.execute(
+            select(StudentEnrollment.student_id)
+            .join(User, User.id == StudentEnrollment.student_id)
+            .where(
+                StudentEnrollment.class_id.in_(class_ids),
+                User.is_active == True,
+                User.role == UserRole.STUDENT
+            )
+        )
+        students = result.scalars().all()
+        for sid in students:
+            if sid not in existing_student_ids:
+                db.add(Submission(assignment_id=assignment_id, student_id=sid, state=SubmissionState.NOT_STARTED))
+                existing_student_ids.add(sid)

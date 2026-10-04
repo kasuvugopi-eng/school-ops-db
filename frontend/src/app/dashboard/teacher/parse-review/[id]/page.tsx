@@ -14,12 +14,18 @@ export default function ParseReviewPage() {
   const [classes, setClasses] = useState<any[]>([]);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
+  const [students, setStudents] = useState<any[]>([]);
+  const [selectedClassIds, setSelectedClassIds] = useState<string[]>([]);
+  const [selectedStudentIds, setSelectedStudentIds] = useState<Set<string>>(new Set());
+
   const fetchParseResult = async () => {
     try {
       const res = await api.get<any>(`/api/documents/${id}/parse-result`);
       const parseData = res?.data ?? res;
       setData(parseData);
       setFormData(parseData?.parsed_data ?? {});
+      setSelectedClassIds(parseData?.parsed_data?.class_ids || (parseData?.parsed_data?.target_class_id ? [parseData?.parsed_data?.target_class_id] : []));
+      setSelectedStudentIds(new Set(parseData?.parsed_data?.student_ids || []));
       setErrorMsg(null);
     } catch (err: any) {
       console.error(err);
@@ -30,8 +36,8 @@ export default function ParseReviewPage() {
   useEffect(() => {
     async function load() {
       try {
-        const clsRes = await api.get<any>('/api/classes');
-        setClasses(clsRes?.data || clsRes || []);
+        const clsRes = await api.get<any>('/api/teachers/me/classes');
+        setClasses(Array.isArray(clsRes) ? clsRes : (clsRes?.items ?? clsRes?.data ?? []));
       } catch (err) {
         console.error(err);
       }
@@ -40,6 +46,29 @@ export default function ParseReviewPage() {
     }
     load();
   }, [id]);
+
+  useEffect(() => {
+    if (selectedClassIds.length > 0) {
+      const qs = selectedClassIds.join(',');
+      api.get<any>(`/api/students?class_ids=${qs}`)
+         .then(res => {
+           const fetchedStudents = Array.isArray(res) ? res : (res?.items ?? res?.data ?? []);
+           setStudents(fetchedStudents);
+           const validIds = new Set(fetchedStudents.map((s: any) => s.id));
+           setSelectedStudentIds(prev => {
+             const next = new Set<string>();
+             prev.forEach(studentId => {
+               if (validIds.has(studentId)) next.add(studentId);
+             });
+             return next;
+           });
+         })
+         .catch(console.error);
+    } else {
+      setStudents([]);
+      setSelectedStudentIds(new Set());
+    }
+  }, [selectedClassIds]);
 
   const handleApprove = async () => {
     setSubmitting(true);
@@ -59,11 +88,13 @@ export default function ParseReviewPage() {
     setSubmitting(true);
     setErrorMsg(null);
     try {
+      const studentIds = Array.from(selectedStudentIds);
       await api.post<any>(`/api/documents/${id}/clarify`, {
         title: formData.title || null,
         subject: formData.subject || null,
         due_date: formData.due_date || null,
-        target_class_id: formData.target_class_id || null,
+        class_ids: selectedClassIds.length > 0 ? selectedClassIds : null,
+        student_ids: studentIds.length > 0 ? studentIds : null,
         instructions: formData.instructions || null
       });
       await fetchParseResult();
@@ -72,6 +103,30 @@ export default function ParseReviewPage() {
       setErrorMsg(err.response?.data?.detail || err.message || 'Failed to clarify');
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const toggleClass = (classId: string) => {
+    if (data.approval_state === 'APPROVED') return;
+    setSelectedClassIds(prev => 
+      prev.includes(classId) ? prev.filter(cId => cId !== classId) : [...prev, classId]
+    );
+  };
+
+  const toggleStudent = (studentId: string) => {
+    if (data.approval_state === 'APPROVED') return;
+    const newSet = new Set(selectedStudentIds);
+    if (newSet.has(studentId)) newSet.delete(studentId);
+    else newSet.add(studentId);
+    setSelectedStudentIds(newSet);
+  };
+
+  const toggleAllStudents = () => {
+    if (data.approval_state === 'APPROVED') return;
+    if (selectedStudentIds.size === students.length && students.length > 0) {
+      setSelectedStudentIds(new Set());
+    } else {
+      setSelectedStudentIds(new Set(students.map(s => s.id)));
     }
   };
 
@@ -85,7 +140,7 @@ export default function ParseReviewPage() {
   const needsClarification = data.approval_state === 'NEEDS_CLARIFICATION';
 
   return (
-    <div className="max-w-3xl mx-auto space-y-6">
+    <div className="max-w-4xl mx-auto space-y-6">
       <div className="flex justify-between items-center">
         <h1 className="text-2xl font-bold text-gray-900">Review Parsed Document</h1>
         <div className="bg-indigo-100 text-indigo-800 px-3 py-1 rounded-full text-sm font-medium">
@@ -107,26 +162,88 @@ export default function ParseReviewPage() {
         </div>
       )}
 
-      <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 space-y-4">
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Title</label>
-          <input type="text" value={formData.title || ''} onChange={e => setFormData({...formData, title: e.target.value})} disabled={data.approval_state === 'APPROVED'} className="w-full px-3 py-2 border border-gray-300 rounded-md disabled:bg-gray-100" />
+      <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 space-y-6">
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Title</label>
+            <input type="text" value={formData.title || ''} onChange={e => setFormData({...formData, title: e.target.value})} disabled={data.approval_state === 'APPROVED'} className="w-full px-3 py-2 border border-gray-300 rounded-md disabled:bg-gray-100" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Subject</label>
+            <input type="text" value={formData.subject || ''} onChange={e => setFormData({...formData, subject: e.target.value})} disabled={data.approval_state === 'APPROVED'} className="w-full px-3 py-2 border border-gray-300 rounded-md disabled:bg-gray-100" />
+          </div>
         </div>
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Subject</label>
-          <input type="text" value={formData.subject || ''} onChange={e => setFormData({...formData, subject: e.target.value})} disabled={data.approval_state === 'APPROVED'} className="w-full px-3 py-2 border border-gray-300 rounded-md disabled:bg-gray-100" />
-        </div>
+        
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">Due Date</label>
           <input type="datetime-local" value={formData.due_date || ''} onChange={e => setFormData({...formData, due_date: e.target.value})} disabled={data.approval_state === 'APPROVED'} className="w-full px-3 py-2 border border-gray-300 rounded-md disabled:bg-gray-100" />
         </div>
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Target Class</label>
-          <select value={formData.target_class_id || ''} onChange={e => setFormData({...formData, target_class_id: e.target.value})} disabled={data.approval_state === 'APPROVED'} className="w-full px-3 py-2 border border-gray-300 rounded-md disabled:bg-gray-100">
-            <option value="">Select a class...</option>
-            {classes.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-          </select>
+
+        <div className="grid grid-cols-2 gap-6 border-t border-gray-100 pt-6">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Target Classes</label>
+            <div className={`border border-gray-200 rounded-md p-3 max-h-48 overflow-y-auto space-y-2 ${data.approval_state === 'APPROVED' ? 'bg-gray-100' : 'bg-gray-50'}`}>
+              {classes.length === 0 ? (
+                <p className="text-sm text-gray-500">No classes assigned.</p>
+              ) : (
+                classes.map(c => (
+                  <label key={c.id} className="flex items-center gap-2">
+                    <input 
+                      type="checkbox" 
+                      checked={selectedClassIds.includes(c.id)}
+                      onChange={() => toggleClass(c.id)}
+                      disabled={data.approval_state === 'APPROVED'}
+                      className="rounded text-indigo-600 focus:ring-indigo-500" 
+                    />
+                    <span>{c.name}</span>
+                  </label>
+                ))
+              )}
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Target Students</label>
+            <div className={`border border-gray-200 rounded-md p-3 max-h-48 overflow-y-auto space-y-2 ${selectedClassIds.length === 0 || data.approval_state === 'APPROVED' ? 'bg-gray-100 opacity-60' : 'bg-gray-50'}`}>
+              {selectedClassIds.length === 0 ? (
+                <p className="text-sm text-gray-500">Select a class first.</p>
+              ) : students.length === 0 ? (
+                <p className="text-sm text-gray-500">No students found in selected classes.</p>
+              ) : (
+                <>
+                  <label className="flex items-center gap-2 pb-2 border-b border-gray-200 mb-2 font-medium">
+                    <input 
+                      type="checkbox" 
+                      checked={selectedStudentIds.size === students.length && students.length > 0}
+                      onChange={toggleAllStudents}
+                      disabled={data.approval_state === 'APPROVED'}
+                      className="rounded text-indigo-600 focus:ring-indigo-500" 
+                    />
+                    <span>Select All</span>
+                  </label>
+                  {students.map(s => (
+                    <label key={s.id} className="flex items-center gap-2">
+                      <input 
+                        type="checkbox" 
+                        checked={selectedStudentIds.has(s.id)}
+                        onChange={() => toggleStudent(s.id)}
+                        disabled={data.approval_state === 'APPROVED'}
+                        className="rounded text-indigo-600 focus:ring-indigo-500" 
+                      />
+                      <span>{s.full_name || s.email}</span>
+                    </label>
+                  ))}
+                </>
+              )}
+            </div>
+            {selectedClassIds.length > 0 && selectedStudentIds.size === 0 && (
+              <p className="mt-2 text-xs text-indigo-600">
+                Hint: No students selected means this assignment will be sent to <strong>all students</strong> in the selected classes.
+              </p>
+            )}
+          </div>
         </div>
+
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">Instructions</label>
           <textarea value={formData.instructions || ''} onChange={e => setFormData({...formData, instructions: e.target.value})} disabled={data.approval_state === 'APPROVED'} className="w-full px-3 py-2 border border-gray-300 rounded-md disabled:bg-gray-100" rows={4} />

@@ -18,52 +18,62 @@ export default function NewAssignmentPage() {
 
   const [students, setStudents] = useState<any[]>([]);
   const [targetMode, setTargetMode] = useState<'CLASS' | 'SELECTED'>('CLASS');
+  const [selectedClassIds, setSelectedClassIds] = useState<string[]>([]);
   const [selectedStudentIds, setSelectedStudentIds] = useState<Set<string>>(new Set());
   const [errorMsg, setErrorMsg] = useState('');
 
   useEffect(() => {
-    api.get<any>('/api/classes').then(res => setClasses(Array.isArray(res) ? res : (res?.items ?? res?.data ?? []))).catch(console.error);
+    // We should use the new endpoint for teacher's classes: /api/teachers/me/classes
+    api.get<any>('/api/teachers/me/classes').then(res => setClasses(Array.isArray(res) ? res : (res?.items ?? res?.data ?? []))).catch(console.error);
   }, []);
 
   useEffect(() => {
-    if (formData.target_class_id) {
-      api.get<any>(`/api/classes/${formData.target_class_id}/students`)
-         .then(res => setStudents(Array.isArray(res) ? res : (res?.items ?? res?.data ?? [])))
+    if (selectedClassIds.length > 0) {
+      const qs = selectedClassIds.join(',');
+      api.get<any>(`/api/students?class_ids=${qs}`)
+         .then(res => {
+           const fetchedStudents = Array.isArray(res) ? res : (res?.items ?? res?.data ?? []);
+           setStudents(fetchedStudents);
+           // Auto-remove students not in the fetched list
+           const validIds = new Set(fetchedStudents.map((s: any) => s.id));
+           setSelectedStudentIds(prev => {
+             const next = new Set<string>();
+             prev.forEach(id => {
+               if (validIds.has(id)) next.add(id);
+             });
+             return next;
+           });
+         })
          .catch(console.error);
     } else {
       setStudents([]);
+      setSelectedStudentIds(new Set());
     }
-    // reset selection on class change
-    setSelectedStudentIds(new Set());
-  }, [formData.target_class_id]);
+  }, [selectedClassIds]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (selectedClassIds.length === 0) {
+      setErrorMsg('Please select at least one class.');
+      return;
+    }
     setLoading(true);
     setErrorMsg('');
     try {
-      let targetType = 'CLASS';
-      let studentIds: string[] = [];
-      if (targetMode === 'SELECTED') {
-        studentIds = Array.from(selectedStudentIds);
-        targetType = studentIds.length === 1 ? 'INDIVIDUAL' : 'GROUP';
-        if (studentIds.length === 0) {
-          setErrorMsg('Please select at least one student.');
-          setLoading(false);
-          return;
-        }
-      }
-
+      const studentIds = Array.from(selectedStudentIds);
       const res = await api.post<any>('/api/assignments', {
-        ...formData,
-        target_type: targetType,
-        target_student_ids: studentIds
+        title: formData.title,
+        subject: formData.subject,
+        instructions: formData.instructions,
+        due_date: formData.due_date,
+        class_ids: selectedClassIds,
+        student_ids: studentIds.length > 0 ? studentIds : null
       });
       const assignmentId = res?.id ?? res?.data?.id;
       router.push(`/dashboard/teacher/assignments/${assignmentId}`);
     } catch (err: any) {
       console.error(err);
-      setErrorMsg(err.response?.data?.detail || 'Failed to create assignment');
+      setErrorMsg(err.response?.data?.detail || err.message || 'Failed to create assignment');
     } finally {
       setLoading(false);
     }
@@ -76,8 +86,22 @@ export default function NewAssignmentPage() {
     setSelectedStudentIds(newSet);
   };
 
+  const toggleClass = (id: string) => {
+    setSelectedClassIds(prev => 
+      prev.includes(id) ? prev.filter(cId => cId !== id) : [...prev, id]
+    );
+  };
+
+  const toggleAllStudents = () => {
+    if (selectedStudentIds.size === students.length && students.length > 0) {
+      setSelectedStudentIds(new Set());
+    } else {
+      setSelectedStudentIds(new Set(students.map(s => s.id)));
+    }
+  };
+
   return (
-    <div className="max-w-3xl mx-auto space-y-6">
+    <div className="max-w-4xl mx-auto space-y-6">
       <h1 className="text-2xl font-bold text-gray-900">Create New Assignment</h1>
       
       {errorMsg && (
@@ -103,34 +127,47 @@ export default function NewAssignmentPage() {
           </div>
         </div>
 
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Target Class</label>
-          <select required value={formData.target_class_id} onChange={e => setFormData({...formData, target_class_id: e.target.value})} className="w-full px-3 py-2 border border-gray-300 rounded-md">
-            <option value="">Select a class...</option>
-            {classes.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-          </select>
-        </div>
-
-        {formData.target_class_id && (
+        <div className="grid grid-cols-2 gap-6 border-t border-gray-100 pt-6">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Target</label>
-            <div className="flex gap-4 mb-4">
-              <label className="flex items-center gap-2">
-                <input type="radio" name="targetMode" checked={targetMode === 'CLASS'} onChange={() => setTargetMode('CLASS')} className="text-indigo-600 focus:ring-indigo-500" />
-                <span>Whole class</span>
-              </label>
-              <label className="flex items-center gap-2">
-                <input type="radio" name="targetMode" checked={targetMode === 'SELECTED'} onChange={() => setTargetMode('SELECTED')} className="text-indigo-600 focus:ring-indigo-500" />
-                <span>Selected students</span>
-              </label>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Target Classes</label>
+            <div className="border border-gray-200 rounded-md p-3 max-h-48 overflow-y-auto space-y-2 bg-gray-50">
+              {classes.length === 0 ? (
+                <p className="text-sm text-gray-500">No classes assigned.</p>
+              ) : (
+                classes.map(c => (
+                  <label key={c.id} className="flex items-center gap-2">
+                    <input 
+                      type="checkbox" 
+                      checked={selectedClassIds.includes(c.id)}
+                      onChange={() => toggleClass(c.id)}
+                      className="rounded text-indigo-600 focus:ring-indigo-500" 
+                    />
+                    <span>{c.name}</span>
+                  </label>
+                ))
+              )}
             </div>
-            
-            {targetMode === 'SELECTED' && (
-              <div className="border border-gray-200 rounded-md p-4 max-h-48 overflow-y-auto space-y-2">
-                {students.length === 0 ? (
-                  <p className="text-sm text-gray-500">No students found.</p>
-                ) : (
-                  students.map(s => (
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Target Students</label>
+            <div className={`border border-gray-200 rounded-md p-3 max-h-48 overflow-y-auto space-y-2 ${selectedClassIds.length === 0 ? 'bg-gray-100 opacity-60' : 'bg-gray-50'}`}>
+              {selectedClassIds.length === 0 ? (
+                <p className="text-sm text-gray-500">Select a class first.</p>
+              ) : students.length === 0 ? (
+                <p className="text-sm text-gray-500">No students found in selected classes.</p>
+              ) : (
+                <>
+                  <label className="flex items-center gap-2 pb-2 border-b border-gray-200 mb-2 font-medium">
+                    <input 
+                      type="checkbox" 
+                      checked={selectedStudentIds.size === students.length && students.length > 0}
+                      onChange={toggleAllStudents}
+                      className="rounded text-indigo-600 focus:ring-indigo-500" 
+                    />
+                    <span>Select All</span>
+                  </label>
+                  {students.map(s => (
                     <label key={s.id} className="flex items-center gap-2">
                       <input 
                         type="checkbox" 
@@ -140,12 +177,17 @@ export default function NewAssignmentPage() {
                       />
                       <span>{s.full_name || s.email}</span>
                     </label>
-                  ))
-                )}
-              </div>
+                  ))}
+                </>
+              )}
+            </div>
+            {selectedClassIds.length > 0 && selectedStudentIds.size === 0 && (
+              <p className="mt-2 text-xs text-indigo-600">
+                Hint: No students selected means this assignment will be sent to <strong>all students</strong> in the selected classes.
+              </p>
             )}
           </div>
-        )}
+        </div>
 
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">Instructions</label>

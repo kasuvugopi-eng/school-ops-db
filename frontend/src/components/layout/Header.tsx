@@ -20,14 +20,26 @@ export default function Header({ onMenuClick }: { onMenuClick: () => void }) {
       </div>
       
       {user && (
-        <div className="flex items-center gap-3">
-          <div className="text-right hidden sm:block">
-            <div className="text-sm font-medium text-gray-900">{user.full_name}</div>
-            <div className="text-xs text-gray-500 capitalize">{user.role}</div>
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3">
+            <div className="text-right hidden sm:block">
+              <div className="text-sm font-medium text-gray-900">{user.full_name}</div>
+              <div className="text-xs text-gray-500 capitalize">{user.role}</div>
+            </div>
+            <div className="h-10 w-10 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 font-bold">
+              {user.full_name?.charAt(0).toUpperCase()}
+            </div>
           </div>
-          <div className="h-10 w-10 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 font-bold">
-            {user.full_name?.charAt(0).toUpperCase()}
-          </div>
+          <button
+            onClick={() => {
+              localStorage.removeItem('access_token');
+              localStorage.removeItem('refresh_token');
+              window.location.href = '/login';
+            }}
+            className="text-sm text-red-600 hover:text-red-800 font-medium ml-2 px-3 py-1.5 border border-red-200 hover:bg-red-50 rounded-md transition-colors"
+          >
+            Logout
+          </button>
         </div>
       )}
     </header>

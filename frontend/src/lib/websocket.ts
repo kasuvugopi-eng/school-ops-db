@@ -8,7 +8,6 @@ export function useSchoolWebSocket(schoolId: string | null, onEvent: EventHandle
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const reconnectAttempts = useRef(0);
-  const maxReconnectAttempts = 5;
 
   const connect = useCallback(() => {
     if (!schoolId) return;
@@ -32,19 +31,19 @@ export function useSchoolWebSocket(schoolId: string | null, onEvent: EventHandle
       }
     };
 
-    ws.onclose = () => {
-      console.log('WebSocket disconnected');
-      if (reconnectAttempts.current < maxReconnectAttempts) {
-        const delay = Math.min(1000 * Math.pow(2, reconnectAttempts.current), 30000);
-        reconnectTimeoutRef.current = setTimeout(() => {
-          reconnectAttempts.current++;
-          connect();
-        }, delay);
-      }
+    ws.onclose = (e) => {
+      console.log(`WebSocket disconnected (code: ${e.code})`);
+      const delay = Math.min(3000 * Math.pow(2, reconnectAttempts.current), 30000);
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+      reconnectTimeoutRef.current = setTimeout(() => {
+        reconnectAttempts.current++;
+        // eslint-disable-next-line
+        connect();
+      }, delay);
     };
 
     ws.onerror = (error) => {
-      console.error('WebSocket error', error);
+      console.warn('WebSocket error', error);
     };
 
     wsRef.current = ws;

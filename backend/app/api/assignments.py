@@ -26,25 +26,28 @@ async def create_assignment(
     current_user: User = Depends(require_role(UserRole.ADMIN, UserRole.TEACHER)),
     db: AsyncSession = Depends(get_db)
 ):
-    # Validate target class belongs to same school and teacher is assigned
-    if data.target_class_id:
-        if current_user.role == UserRole.TEACHER:
-            tc_result = await db.execute(
-                select(TeacherClassAssignment)
-                .where(TeacherClassAssignment.teacher_id == current_user.id, TeacherClassAssignment.class_id == data.target_class_id)
-            )
-            if not tc_result.scalar_one_or_none():
-                await log_event(db, "access.denied", school_id=current_user.school_id, actor_id=current_user.id, resource_type="school_class", resource_id=data.target_class_id)
-                await db.commit()
-                raise HTTPException(status_code=403, detail="Not a teacher of this class")
+    if not data.class_ids:
+        raise HTTPException(status_code=400, detail="At least one class_id is required")
 
-    # Validate GROUP / INDIVIDUAL
-    if data.target_type in (AssignmentTargetType.GROUP, AssignmentTargetType.INDIVIDUAL):
-        if not data.target_class_id or not data.target_student_ids:
-            raise HTTPException(status_code=400, detail="target_class_id and target_student_ids are required for GROUP/INDIVIDUAL")
-            
+    # Validate classes belong to same school and teacher is assigned
+    if current_user.role == UserRole.TEACHER:
+        tc_result = await db.execute(
+            select(TeacherClassAssignment.class_id)
+            .where(
+                TeacherClassAssignment.teacher_id == current_user.id,
+                TeacherClassAssignment.class_id.in_(data.class_ids)
+            )
+        )
+        assigned_classes = {row[0] for row in tc_result.all()}
+        for cid in data.class_ids:
+            if cid not in assigned_classes:
+                await log_event(db, "access.denied", school_id=current_user.school_id, actor_id=current_user.id, resource_type="school_class", resource_id=cid)
+                await db.commit()
+                raise HTTPException(status_code=403, detail=f"Not a teacher of class {cid}")
+
+    if data.student_ids:
         try:
-            student_uuids = [uuid.UUID(sid) if isinstance(sid, str) else sid for sid in data.target_student_ids]
+            student_uuids = [uuid.UUID(str(sid)) for sid in data.student_ids]
         except ValueError:
             raise HTTPException(status_code=400, detail="Invalid student IDs")
             
@@ -52,7 +55,7 @@ async def create_assignment(
             select(StudentEnrollment.student_id)
             .join(User, User.id == StudentEnrollment.student_id)
             .where(
-                StudentEnrollment.class_id == data.target_class_id,
+                StudentEnrollment.class_id.in_(data.class_ids),
                 StudentEnrollment.student_id.in_(student_uuids),
                 User.school_id == current_user.school_id
             )
@@ -60,7 +63,7 @@ async def create_assignment(
         valid_student_ids = {row[0] for row in result.all()}
         
         if len(valid_student_ids) != len(set(student_uuids)):
-            raise HTTPException(status_code=400, detail="One or more students are not enrolled in the specified class or school")
+            raise HTTPException(status_code=400, detail="One or more students are not enrolled in the specified classes")
             
     from app.services.assignment_service import create_assignment as create_assignment_service
     
@@ -70,19 +73,21 @@ async def create_assignment(
         "instructions": data.instructions,
         "due_date": data.due_date,
         "target_type": data.target_type,
-        "target_class_id": data.target_class_id,
-        "target_student_ids": [str(sid) for sid in (data.target_student_ids or [])],
+        "target_student_ids": [str(sid) for sid in (data.student_ids or [])],
         "state": AssignmentState.DRAFT
     }
     
-    assignment = await create_assignment_service(db, assignment_data, current_user)
+    assignment = await create_assignment_service(db, assignment_data, data.class_ids, current_user)
+    
+    # Reload assignment with classes
+    await db.refresh(assignment, ['classes'])
     
     return {
         "id": str(assignment.id), "title": assignment.title, "subject": assignment.subject,
         "instructions": assignment.instructions, "due_date": str(assignment.due_date) if assignment.due_date else None,
         "target_type": assignment.target_type.value, "state": assignment.state.value,
         "created_by": str(assignment.created_by), "school_id": str(assignment.school_id),
-        "target_class_id": str(assignment.target_class_id) if assignment.target_class_id else None,
+        "class_ids": [str(c.id) for c in assignment.classes],
         "created_at": str(assignment.created_at)
     }
 
@@ -102,21 +107,27 @@ async def list_assignments(
         )
         class_ids = [row[0] for row in teacher_classes.all()]
         if class_ids:
-            query = query.where(
-                (Assignment.target_class_id.in_(class_ids)) | 
+            from app.models.assignment import assignment_classes
+            query = query.outerjoin(assignment_classes).where(
+                (assignment_classes.c.class_id.in_(class_ids)) | 
                 (Assignment.created_by == current_user.id)
-            )
+            ).distinct()
         else:
             query = query.where(Assignment.created_by == current_user.id)
     elif current_user.role == UserRole.STUDENT:
-        # Only assignments where student has a submission
+        # Only assignments where student has a submission, and state is not DRAFT
         student_assignments = await db.execute(
             select(Submission.assignment_id).where(Submission.student_id == current_user.id)
         )
         assignment_ids = [row[0] for row in student_assignments.all()]
-        query = query.where(Assignment.id.in_(assignment_ids))
+        query = query.where(
+            Assignment.id.in_(assignment_ids),
+            Assignment.state != AssignmentState.DRAFT
+        )
     
-    result = await db.execute(query.order_by(Assignment.created_at.desc()))
+    # Eager load classes
+    from sqlalchemy.orm import selectinload
+    result = await db.execute(query.options(selectinload(Assignment.classes)).order_by(Assignment.created_at.desc()))
     assignments = result.scalars().all()
     
     response = []
@@ -135,7 +146,7 @@ async def list_assignments(
             "due_date": str(a.due_date) if a.due_date else None,
             "target_type": a.target_type.value, "state": a.state.value,
             "created_by": str(a.created_by), "school_id": str(a.school_id),
-            "target_class_id": str(a.target_class_id) if a.target_class_id else None,
+            "class_ids": [str(c.id) for c in a.classes],
             "created_at": str(a.created_at),
             "submission_summary": summary
         })
@@ -147,7 +158,8 @@ async def get_assignment_detail(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    result = await db.execute(select(Assignment).where(Assignment.id == id))
+    from sqlalchemy.orm import selectinload
+    result = await db.execute(select(Assignment).options(selectinload(Assignment.classes)).where(Assignment.id == id))
     assignment = result.scalar_one_or_none()
     if not assignment:
         raise HTTPException(status_code=404, detail="Assignment not found")
@@ -175,7 +187,7 @@ async def get_assignment_detail(
         "due_date": str(assignment.due_date) if assignment.due_date else None,
         "target_type": assignment.target_type.value, "state": assignment.state.value,
         "created_by": str(assignment.created_by), "school_id": str(assignment.school_id),
-        "target_class_id": str(assignment.target_class_id) if assignment.target_class_id else None,
+        "class_ids": [str(c.id) for c in assignment.classes],
         "created_at": str(assignment.created_at),
         "submissions": submissions
     }
