@@ -65,109 +65,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         db.add(chat_msg)
         
-        # Route based on intent
-        if chat_id in TEACHER_DRAFTS:
-            # Handle conversational reply for draft assignment
-            draft = TEACHER_DRAFTS[chat_id]
-            if message_text.lower() in ["cancel", "stop"]:
-                del TEACHER_DRAFTS[chat_id]
-                await update.message.reply_text("Assignment creation cancelled.")
-                return
-                
-            if draft.get("state") == "WAITING_DUE_DATE":
-                # User replied to due date question
-                if "ok" in message_text.lower() or "yes" in message_text.lower():
-                    from datetime import datetime, timedelta, timezone
-                    draft["parsed"].due_date = (datetime.now(timezone.utc) + timedelta(days=7)).isoformat()
-                else:
-                    # They provided a specific date string, but for simplicity let's assume they just gave a date
-                    draft["parsed"].due_date = message_text
-                
-                draft["state"] = "WAITING_APPROVAL"
-                await update.message.reply_text(
-                    f"Got it! Due date set to: {draft['parsed'].due_date}\n\n"
-                    f"Title: {draft['parsed'].title}\n"
-                    f"Subject: {draft['parsed'].subject}\n"
-                    f"Instructions: {draft['parsed'].instructions}\n\n"
-                    f"Shall I approve and send this to the students? (Reply 'approve' or 'cancel')"
-                )
-                return
-                
-            elif draft.get("state") == "WAITING_APPROVAL":
-                if "approve" in message_text.lower() or "ok" in message_text.lower():
-                    # Create assignment
-                    from app.services.assignment_service import create_assignment
-                    from app.models.enums import AssignmentTargetType
-                    import uuid
-                    
-                    # Fetch a class to assign it to if target_class_id is missing
-                    target_class_id = draft["parsed"].target_class_id
-                    if not target_class_id:
-                        from app.models.grade_class import GradeClass
-                        cls_result = await db.execute(select(GradeClass).where(GradeClass.school_id == user.school_id).limit(1))
-                        first_class = cls_result.scalar_one_or_none()
-                        if first_class:
-                            target_class_id = first_class.id
-                        else:
-                            await update.message.reply_text("Error: No classes found in school to assign to.")
-                            del TEACHER_DRAFTS[chat_id]
-                            return
-                    else:
-                        try:
-                            target_class_id = uuid.UUID(target_class_id)
-                        except ValueError:
-                            # Match by name
-                            from app.models.grade_class import GradeClass
-                            cls_result = await db.execute(select(GradeClass).where(GradeClass.school_id == user.school_id))
-                            classes = cls_result.scalars().all()
-                            matched = next((c for c in classes if c.name.lower() in target_class_id.lower()), classes[0] if classes else None)
-                            target_class_id = matched.id if matched else None
-                            
-                    assignment_data = {
-                        "title": draft["parsed"].title or "Untitled",
-                        "subject": draft["parsed"].subject or "General",
-                        "instructions": draft["parsed"].instructions,
-                        "due_date": datetime.now(timezone.utc) + timedelta(days=7), # Simplified
-                        "target_type": AssignmentTargetType.CLASS,
-                        "state": AssignmentState.ACTIVE
-                    }
-                    
-                    created = await create_assignment(db, assignment_data, target_class_id, user)
-                    await update.message.reply_text(f"✅ Assignment '{created.title}' has been successfully created and sent to students!")
-                    del TEACHER_DRAFTS[chat_id]
-                    return
-                else:
-                    del TEACHER_DRAFTS[chat_id]
-                    await update.message.reply_text("Cancelled.")
-                    return
-
-        if intent.intent == "create_assignment" and user.role == UserRole.TEACHER:
-            from app.agents.document_parser import parse_assignment_document
-            parsed = await parse_assignment_document(message_text)
-            
-            if not parsed.due_date:
-                TEACHER_DRAFTS[chat_id] = {
-                    "parsed": parsed,
-                    "state": "WAITING_DUE_DATE"
-                }
-                await update.message.reply_text(
-                    f"I analyzed your assignment:\n"
-                    f"Title: {parsed.title}\n"
-                    f"Subject: {parsed.subject}\n\n"
-                    f"But I noticed there is no due date. Shall I set it to 1 week from now? (Reply 'ok' or provide a date)"
-                )
-            else:
-                TEACHER_DRAFTS[chat_id] = {
-                    "parsed": parsed,
-                    "state": "WAITING_APPROVAL"
-                }
-                await update.message.reply_text(
-                    f"I analyzed your assignment:\n"
-                    f"Title: {parsed.title}\n"
-                    f"Subject: {parsed.subject}\n"
-                    f"Due Date: {parsed.due_date}\n\n"
-                    f"Shall I approve and send this to the students? (Reply 'approve' or 'cancel')"
-                )
+        # Route based on user role and intent
+        from app.telegram.handlers.teacher import process_teacher_assignment_flow, TEACHER_DRAFTS
+        
+        if user.role == UserRole.TEACHER:
+            await process_teacher_assignment_flow(update, context, user, raw_text=message_text)
             return
 
         if intent.intent == "progress_update":

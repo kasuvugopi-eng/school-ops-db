@@ -24,10 +24,27 @@ def create_bot_app() -> Application | None:
         fallback.handle_message
     ))
     
+    async def handle_media_upload(update, context):
+        from app.telegram.handlers.fallback import resolve_user
+        from app.database import async_sessionmaker_instance
+        from app.models.enums import UserRole
+        from app.telegram.handlers import student, teacher
+        
+        chat_id = str(update.effective_chat.id)
+        async with async_sessionmaker_instance() as db:
+            user = await resolve_user(chat_id, db)
+            if not user:
+                await update.message.reply_text("⚠️ Your account is not linked. Use /link <CODE> to connect your school account.")
+                return
+            if user.role == UserRole.TEACHER:
+                await teacher.handle_teacher_file(update, context, user)
+            else:
+                await student.handle_file_submission(update, context)
+
     # Photo/document handler
     app.add_handler(MessageHandler(
         filters.PHOTO | filters.Document.ALL,
-        student.handle_file_submission
+        handle_media_upload
     ))
     
     return app
