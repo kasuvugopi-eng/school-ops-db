@@ -64,3 +64,11 @@ async def stop_bot():
             await bot_app.updater.stop()
         await bot_app.stop()
         await bot_app.shutdown()
+
+async def send_telegram_message(chat_id: str, text: str):
+    global bot_app
+    if bot_app and bot_app.bot:
+        try:
+            await bot_app.bot.send_message(chat_id=chat_id, text=text, parse_mode="Markdown")
+        except Exception as e:
+            logger.error(f"Failed to send telegram message to {chat_id}: {e}")

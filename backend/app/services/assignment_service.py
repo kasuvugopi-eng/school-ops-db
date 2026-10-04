@@ -32,6 +32,28 @@ async def create_assignment(db: AsyncSession, data: dict, target_class_id: uuid.
     
     await db.commit()
     await db.refresh(assignment)
+    
+    if assignment.state == AssignmentState.ACTIVE:
+        from app.models.user import User
+        students_query = select(User).join(Submission, Submission.student_id == User.id).where(
+            Submission.assignment_id == assignment.id, 
+            User.telegram_chat_id.isnot(None)
+        )
+        students_res = await db.execute(students_query)
+        notifiable_students = students_res.scalars().all()
+        
+        from app.telegram.bot import send_telegram_message
+        msg = f"🔔 *New Assignment: {assignment.title}*\n\n"
+        if assignment.subject:
+            msg += f"📚 *Subject*: {assignment.subject}\n"
+        if assignment.due_date:
+            due_str = assignment.due_date.strftime('%Y-%m-%d %H:%M') if isinstance(assignment.due_date, datetime) else str(assignment.due_date)
+            msg += f"⏰ *Due Date*: {due_str}\n"
+        msg += f"\n📝 *Instructions*: {assignment.instructions or 'See portal for details.'}"
+        
+        for student in notifiable_students:
+            await send_telegram_message(student.telegram_chat_id, msg)
+            
     return assignment
 
 async def list_assignments(db: AsyncSession, school_id: uuid.UUID, class_id: uuid.UUID = None, teacher_id: uuid.UUID = None, state: AssignmentState = None):
@@ -61,7 +83,34 @@ async def update_assignment_state(db: AsyncSession, assignment_id: uuid.UUID, ne
     assignment.state = new_state
     await db.commit()
     await db.refresh(assignment)
-    event_name = "assignment.activated" if new_state == AssignmentState.ACTIVE else "assignment.state_updated"
+    
+    if new_state == AssignmentState.ACTIVE:
+        event_name = "assignment.activated"
+        # Notify all students who have a submission for this assignment
+        from app.models.user import User
+        students_query = select(User).join(Submission, Submission.student_id == User.id).where(
+            Submission.assignment_id == assignment_id, 
+            User.telegram_chat_id.isnot(None)
+        )
+        students_res = await db.execute(students_query)
+        notifiable_students = students_res.scalars().all()
+        
+        from app.telegram.bot import send_telegram_message
+        msg = f"🔔 *New Assignment: {assignment.title}*\n\n"
+        if assignment.subject:
+            msg += f"📚 *Subject*: {assignment.subject}\n"
+        if assignment.due_date:
+            # Format datetime
+            due_str = assignment.due_date.strftime('%Y-%m-%d %H:%M') if isinstance(assignment.due_date, datetime) else str(assignment.due_date)
+            msg += f"⏰ *Due Date*: {due_str}\n"
+        msg += f"\n📝 *Instructions*: {assignment.instructions or 'See portal for details.'}"
+        
+        for student in notifiable_students:
+            await send_telegram_message(student.telegram_chat_id, msg)
+            
+    else:
+        event_name = "assignment.state_updated"
+        
     await log_event(db, correlation_id=uuid.uuid4(), school_id=assignment.school_id, actor_id=user.id, actor_type="user", event_type=event_name, resource_type="assignment", resource_id=assignment.id, details={"new_state": new_state.value})
     return assignment
 
