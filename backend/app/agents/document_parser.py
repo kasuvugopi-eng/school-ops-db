@@ -33,9 +33,6 @@ def extract_text_from_csv(file_path: str) -> str:
 import base64
 
 def extract_text_from_image(file_path: str, mime_type: str) -> str:
-    # Instead of OCR, we return a special prefix that the LLM parser can handle
-    # with the base64 encoded image if we switch to vision mode.
-    # For now, we will just read base64 and structure it for a vision prompt.
     with open(file_path, "rb") as image_file:
         encoded_string = base64.b64encode(image_file.read()).decode('utf-8')
     return f"[IMAGE:{mime_type};base64,{encoded_string}]"
@@ -53,7 +50,6 @@ def extract_text(file_path: str, mime_type: str) -> str:
         with open(file_path, 'r', encoding='utf-8') as f:
             return f.read()
     else:
-        # Try as text
         with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
             return f.read()
 
@@ -69,7 +65,6 @@ async def parse_assignment_document(text: str) -> ParsedAssignment:
     
     user_content = []
     if safe_text.startswith("[IMAGE:"):
-        # Format for Vision API
         end_idx = safe_text.find("]")
         if end_idx != -1:
             meta = safe_text[7:end_idx]
@@ -108,7 +103,6 @@ async def parse_assignment_document(text: str) -> ParsedAssignment:
 async def parse_roster_document(text: str) -> ParsedRoster:
     openai_client = get_openai_client()
     if not openai_client:
-        # Fallback: try CSV parsing directly
         return parse_csv_roster(text)
     
     safe_text = sanitize_document_text(text)

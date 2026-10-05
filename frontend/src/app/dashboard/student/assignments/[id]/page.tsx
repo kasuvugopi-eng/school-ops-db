@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import api from '@/lib/api';
 import { useParams } from 'next/navigation';
 import StatusBadge from '@/components/ui/StatusBadge';
+import FileUpload from '@/components/ui/FileUpload';
 
 export default function StudentAssignmentDetailPage() {
   const { id } = useParams();
@@ -12,6 +13,7 @@ export default function StudentAssignmentDetailPage() {
   const [content, setContent] = useState('');
   const [blockReason, setBlockReason] = useState('');
   const [showBlock, setShowBlock] = useState(false);
+  const [uploading, setUploading] = useState(false);
 
   const fetchData = async () => {
     try {
@@ -38,13 +40,32 @@ export default function StudentAssignmentDetailPage() {
 
   useEffect(() => { fetchData(); }, [id]);
 
-  const handleUpdate = async (state: string) => {
+  const handleFileUpload = async (file: File) => {
+    setUploading(true);
     try {
-      await api.put<any>(`/api/submissions/${data.id}`, { state, content_text: content });
-      fetchData();
-    } catch (err) {
+      // Upload document attachment
+      const res = await api.uploadFile<any>('/api/documents/upload', file, { document_type: 'CLASS_MATERIAL' });
+      const attachmentNotice = `\n📎 Attached File: ${file.name}`;
+      setContent(prev => (prev ? prev + attachmentNotice : `📎 Attached File: ${file.name}`));
+      alert(`File "${file.name}" attached successfully!`);
+    } catch (err: any) {
       console.error(err);
-      alert('Failed to update submission');
+      alert(`Upload failed: ${err.message || 'Error uploading file'}`);
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleUpdate = async (targetState: string) => {
+    try {
+      await api.put<any>(`/api/submissions/${data.id}`, { state: targetState, content_text: content });
+      fetchData();
+      if (targetState === 'SUBMITTED') {
+        alert('Assignment submitted successfully!');
+      }
+    } catch (err: any) {
+      console.error(err);
+      alert(`Failed to update submission: ${err.message || 'Error'}`);
     }
   };
 
@@ -88,8 +109,14 @@ export default function StudentAssignmentDetailPage() {
               onChange={e => setContent(e.target.value)}
               placeholder="Type your answer or paste a link here..." 
               className="w-full px-3 py-2 border border-gray-300 rounded-md"
-              rows={8}
+              rows={6}
             ></textarea>
+
+            <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
+              <label className="block text-sm font-semibold text-gray-700 mb-2">📎 Attach Document or Photo (Optional)</label>
+              <FileUpload onFileSelect={handleFileUpload} />
+              {uploading && <p className="text-sm text-indigo-600 mt-2 font-medium">Uploading attachment...</p>}
+            </div>
             
             <div className="flex gap-3">
               <button onClick={() => handleUpdate(state === 'NOT_STARTED' ? 'IN_PROGRESS' : state)} className="px-4 py-2 bg-white text-indigo-600 border border-indigo-600 rounded-md">Save Draft</button>

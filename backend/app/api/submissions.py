@@ -159,6 +159,10 @@ async def update_submission(
             "assignment_title": assignment.title, "state": sub.state.value
         })
     
+    if body.state and SubmissionState(body.state) in (SubmissionState.SUBMITTED, SubmissionState.RESUBMITTED):
+        from app.services.submission_service import notify_submission_created_or_updated
+        await notify_submission_created_or_updated(db, sub)
+
     return {"id": str(sub.id), "state": sub.state.value}
 
 @router.post("/{id}/submit")

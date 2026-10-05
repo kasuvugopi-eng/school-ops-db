@@ -15,6 +15,8 @@ SUBMISSION_TRANSITIONS = {
 }
 
 def validate_submission_transition(current: SubmissionState, target: SubmissionState) -> bool:
+    if current == target:
+        return True
     if target not in SUBMISSION_TRANSITIONS.get(current, set()):
         raise ValueError(f"Invalid transition from {current} to {target}")
     return True
@@ -39,7 +41,68 @@ async def update_submission_state(db: AsyncSession, submission_id: uuid.UUID, ne
         
     await db.commit()
     await db.refresh(submission)
+    
+    if new_state in (SubmissionState.SUBMITTED, SubmissionState.RESUBMITTED):
+        await notify_submission_created_or_updated(db, submission)
+        
     return submission
+
+async def notify_submission_created_or_updated(db: AsyncSession, submission: Submission):
+    from app.models.assignment import Assignment
+    from app.models.user import User
+    from app.models.grade_class import GradeClass
+    from app.telegram.bot import send_telegram_message
+    from app.services.assignment_service import format_datetime_ist
+
+    # Fetch assignment
+    asgn_res = await db.execute(select(Assignment).where(Assignment.id == submission.assignment_id))
+    assignment = asgn_res.scalar_one_or_none()
+    if not assignment:
+        return
+
+    # Fetch student
+    student_res = await db.execute(select(User).where(User.id == submission.student_id))
+    student = student_res.scalar_one_or_none()
+    if not student:
+        return
+
+    # Fetch class and grade level info
+    class_name = "All Classes"
+    grade = "General"
+    if assignment.target_class_id:
+        cls_res = await db.execute(select(GradeClass).where(GradeClass.id == assignment.target_class_id))
+        target_cls = cls_res.scalar_one_or_none()
+        if target_cls:
+            class_name = target_cls.name
+            grade = target_cls.grade_level or "General"
+
+    submitted_date_str = format_datetime_ist(submission.submitted_at or datetime.now(timezone.utc))
+
+    # 1. Delivery Confirmation to Student
+    if student.telegram_chat_id:
+        student_delivery_msg = (
+            "✅ *Assignment Submitted Successfully!*\n\n"
+            f"*Assignment name:* {assignment.title}\n"
+            f"*class-grade:* {class_name} ({grade})\n"
+            f"*subject:* {assignment.subject or 'General'}\n"
+            f"*submitted date:* {submitted_date_str}\n"
+            f"*status:* Submitted (Pending Teacher Review)"
+        )
+        await send_telegram_message(student.telegram_chat_id, student_delivery_msg)
+
+    # 2. Notification Alert to Teacher
+    teacher_res = await db.execute(select(User).where(User.id == assignment.created_by))
+    teacher = teacher_res.scalar_one_or_none()
+    if teacher and teacher.telegram_chat_id:
+        teacher_alert_msg = (
+            "📩 *New Assignment Submission Received!*\n\n"
+            f"*Assignment name:* {assignment.title}\n"
+            f"*class-grade:* {class_name} ({grade})\n"
+            f"*student name:* {student.full_name}\n"
+            f"*submitted date:* {submitted_date_str}\n"
+            f"*status:* Pending Review"
+        )
+        await send_telegram_message(teacher.telegram_chat_id, teacher_alert_msg)
 
 async def get_submission(db: AsyncSession, submission_id: uuid.UUID):
     result = await db.execute(select(Submission).where(Submission.id == submission_id))

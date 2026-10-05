@@ -52,6 +52,11 @@ async def notify_students_for_assignment(db: AsyncSession, assignment: Assignmen
     from app.models.student_enrollment import StudentEnrollment
     from app.telegram.bot import send_telegram_message
 
+    # Strict Quiet Hours Check: Night 10:00 PM (22) to Morning 7:00 AM (7) IST
+    ist_tz = timezone(timedelta(hours=5, minutes=30))
+    now_ist = datetime.now(timezone.utc).astimezone(ist_tz)
+    now_hour = now_ist.hour
+
     # Fetch teacher name
     teacher_res = await db.execute(select(User.full_name).where(User.id == assignment.created_by))
     teacher_name = teacher_res.scalar_one_or_none() or "Teacher"
@@ -92,10 +97,48 @@ async def notify_students_for_assignment(db: AsyncSession, assignment: Assignmen
     students_res = await db.execute(students_query)
     notifiable_students = students_res.scalars().all()
 
+    # Quiet Hours Policy (10 PM - 7 AM IST): Queue notifications for 7 AM
+    if now_hour >= 22 or now_hour < 7:
+        from app.models.reminder import Reminder
+        from app.models.enums import ReminderType, ReminderState
+
+        next_7am = now_ist.replace(hour=7, minute=0, second=0, microsecond=0)
+        if now_hour >= 22:
+            next_7am += timedelta(days=1)
+
+        for student in notifiable_students:
+            reminder = Reminder(
+                assignment_id=assignment.id,
+                target_student_id=student.id,
+                reminder_type=ReminderType.UPCOMING,
+                scheduled_for=next_7am,
+                state=ReminderState.SCHEDULED,
+                message_text=student_msg
+            )
+            db.add(reminder)
+        await db.commit()
+        await log_event(db, correlation_id=uuid.uuid4(), school_id=assignment.school_id, actor_type="system", event_type="assignment.notification_queued_quiet_hours", resource_type="assignment", resource_id=assignment.id, details={"quiet_hours": "10 PM - 7 AM IST", "scheduled_for": str(next_7am)})
+
+        # Teacher Delivery Confirmation with Quiet Hours notice
+        teacher_user_res = await db.execute(select(User).where(User.id == assignment.created_by))
+        teacher_user = teacher_user_res.scalar_one_or_none()
+        if teacher_user and teacher_user.telegram_chat_id:
+            teacher_msg = (
+                "✅ *Assignment Published Successfully!*\n\n"
+                f"*assignment name:* {assignment.title}\n"
+                f"*class-grade:* {class_name} ({grade})\n"
+                f"*assigned date:* {format_datetime_ist(assignment.created_at)}\n"
+                f"*due date:* {format_datetime_ist(assignment.due_date)}\n\n"
+                f"🌙 _Quiet Hours Policy Active (10 PM - 7 AM IST). Student notifications scheduled for 7:00 AM._"
+            )
+            await send_telegram_message(teacher_user.telegram_chat_id, teacher_msg)
+        return
+
+    # Outside Quiet Hours (7 AM - 10 PM IST): Send immediate Telegram notifications
     for student in notifiable_students:
         await send_telegram_message(student.telegram_chat_id, student_msg)
 
-    # Teacher Delivery Confirmation Notification
+    # Teacher Delivery Confirmation
     teacher_user_res = await db.execute(select(User).where(User.id == assignment.created_by))
     teacher_user = teacher_user_res.scalar_one_or_none()
     if teacher_user and teacher_user.telegram_chat_id:
