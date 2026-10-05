@@ -7,19 +7,23 @@ from app.models.invite_token import InviteToken
 from app.services.audit_service import log_event
 from datetime import datetime, timezone
 
+import logging
+logger = logging.getLogger("uvicorn.error")
+
 async def handle_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /start command."""
+    chat_id = str(update.effective_chat.id)
+    logger.info(f"Received /start from Telegram chat_id: {chat_id}")
     await update.message.reply_text(
-        "👋 Welcome to School Ops Bot!\n\n"
-        "I help you manage school assignments and track progress.\n\n"
-        "Commands:\n"
-        "/link <CODE> - Link your account\n"
-        "/status - View your assignment status\n"
-        "/help - Show this help\n\n"
-        "You can also send me messages naturally:\n"
-        "- Tell me about your progress\n"
-        "- Say 'I'm stuck' if you need help\n"
-        "- Send a photo/file to submit work"
+        f"👋 Welcome to School Ops Bot!\n\n"
+        f"🆔 Your Telegram Chat ID is: `{chat_id}`\n\n"
+        f"📋 Quick Setup:\n"
+        f"1. Copy your Chat ID: `{chat_id}`\n"
+        f"2. Paste it in your SchoolOps Web App profile page (http://localhost:3000/dashboard/profile) to connect instant alerts!\n\n"
+        f"Commands:\n"
+        f"/link <CODE> - Link using invite code\n"
+        f"/status - View your assignment status\n"
+        f"/help - Show this help"
     )
 
 async def handle_help(update: Update, context: ContextTypes.DEFAULT_TYPE):

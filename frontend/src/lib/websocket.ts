@@ -14,7 +14,8 @@ export function useSchoolWebSocket(schoolId: string | null, onEvent: EventHandle
     const token = localStorage.getItem('access_token');
     if (!token) return;
 
-    const wsUrl = `${process.env.NEXT_PUBLIC_WS_URL}/ws/school/${schoolId}?token=${token}`;
+    const wsBase = process.env.NEXT_PUBLIC_WS_URL || (typeof window !== 'undefined' ? `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.hostname}:8000` : 'ws://localhost:8000');
+    const wsUrl = `${wsBase}/ws/school/${schoolId}?token=${token}`;
     const ws = new WebSocket(wsUrl);
 
     ws.onopen = () => {

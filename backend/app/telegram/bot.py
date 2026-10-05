@@ -12,6 +12,8 @@ def create_bot_app() -> Application | None:
     
     from app.telegram.handlers import start, student, teacher, fallback
     
+    from telegram.ext import CallbackQueryHandler
+    
     # Command handlers
     app.add_handler(CommandHandler("start", start.handle_start))
     app.add_handler(CommandHandler("link", start.handle_link))
@@ -19,6 +21,9 @@ def create_bot_app() -> Application | None:
     app.add_handler(CommandHandler("help", start.handle_help))
     app.add_handler(CommandHandler("cancel_assignment", teacher.handle_cancel_assignment))
     app.add_handler(CommandHandler("cancel", teacher.handle_cancel_assignment))
+
+    # Inline button callback handler
+    app.add_handler(CallbackQueryHandler(teacher.handle_callback_query))
     
     # Natural language message handler
     app.add_handler(MessageHandler(
@@ -74,7 +79,8 @@ async def start_bot(app=None):
             secret_token=settings.TELEGRAM_SECRET_TOKEN
         )
     else:
-        await bot_app.updater.start_polling(drop_pending_updates=True)
+        await bot_app.updater.start_polling(drop_pending_updates=False)
+        logger.info("🤖 Telegram bot polling started successfully for @school_ops_tetris_bot.")
 
 async def stop_bot():
     global bot_app
@@ -84,7 +90,7 @@ async def stop_bot():
         await bot_app.stop()
         await bot_app.shutdown()
 
-async def send_telegram_message(chat_id: str, text: str):
+async def send_telegram_message(chat_id: str, text: str, reply_markup=None):
     global bot_app
     bot_instance = bot_app.bot if (bot_app and bot_app.bot) else None
     if not bot_instance and settings.TELEGRAM_BOT_TOKEN:
@@ -93,12 +99,12 @@ async def send_telegram_message(chat_id: str, text: str):
         
     if bot_instance:
         try:
-            await bot_instance.send_message(chat_id=chat_id, text=text, parse_mode="Markdown")
+            await bot_instance.send_message(chat_id=chat_id, text=text, parse_mode="Markdown", reply_markup=reply_markup)
             logger.info(f"Successfully sent Telegram notification to chat_id {chat_id}")
         except Exception as e:
             # Fallback without Markdown if markdown parsing fails
             try:
-                await bot_instance.send_message(chat_id=chat_id, text=text)
+                await bot_instance.send_message(chat_id=chat_id, text=text, reply_markup=reply_markup)
                 logger.info(f"Successfully sent Telegram notification (plain text) to chat_id {chat_id}")
             except Exception as ex:
                 logger.error(f"Failed to send telegram message to {chat_id}: {ex}")

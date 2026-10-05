@@ -52,15 +52,13 @@ async def _admin_dashboard(db: AsyncSession, user: User):
     }
 
 async def _teacher_dashboard(db: AsyncSession, user: User):
-    # Get teacher's class IDs
-    tc_result = await db.execute(
-        select(TeacherClassAssignment.class_id).where(TeacherClassAssignment.teacher_id == user.id)
-    )
-    class_ids = [row[0] for row in tc_result.all()]
+    # Teacher created assignments filter (strict isolation per teacher)
+    assignment_filter = (Assignment.created_by == user.id)
     
     my_assignments = await db.execute(
         select(func.count(Assignment.id)).where(
-            (Assignment.created_by == user.id) | (Assignment.target_class_id.in_(class_ids) if class_ids else False)
+            Assignment.school_id == user.school_id,
+            assignment_filter
         )
     )
     
@@ -73,7 +71,7 @@ async def _teacher_dashboard(db: AsyncSession, user: User):
         .where(
             Submission.submitted_at >= today_start,
             Assignment.school_id == user.school_id,
-            (Assignment.created_by == user.id) | (Assignment.target_class_id.in_(class_ids) if class_ids else False)
+            assignment_filter
         )
     )
 
@@ -85,7 +83,7 @@ async def _teacher_dashboard(db: AsyncSession, user: User):
         .where(
             Submission.state == SubmissionState.BLOCKED,
             Assignment.school_id == user.school_id,
-            (Assignment.created_by == user.id) | (Assignment.target_class_id.in_(class_ids) if class_ids else False)
+            assignment_filter
         )
     )
     blocked_students = [{
@@ -101,7 +99,7 @@ async def _teacher_dashboard(db: AsyncSession, user: User):
         .where(
             Submission.state.in_([SubmissionState.SUBMITTED, SubmissionState.RESUBMITTED]),
             Assignment.school_id == user.school_id,
-            (Assignment.created_by == user.id) | (Assignment.target_class_id.in_(class_ids) if class_ids else False)
+            assignment_filter
         )
         .order_by(Submission.submitted_at.desc())
         .limit(10)

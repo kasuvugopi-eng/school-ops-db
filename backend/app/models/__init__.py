@@ -15,3 +15,4 @@ from .audit_event import AuditEvent
 from .invite_token import InviteToken
 from .school_policy import SchoolPolicy
 from .chat_message import ChatMessage
+from .announcement import Announcement

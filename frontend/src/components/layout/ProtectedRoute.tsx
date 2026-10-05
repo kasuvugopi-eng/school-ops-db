@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import { useAuth } from '@/lib/auth';
 import { useRouter, usePathname } from 'next/navigation';
@@ -16,8 +16,10 @@ export default function ProtectedRoute({ children, allowedRoles }: { children: R
         router.push('/login');
       } else {
         const expectedBase = getDashboardRoute(user.role);
-        // If they are under /dashboard, enforce they stay in their lane
-        if (pathname && pathname.startsWith('/dashboard') && !pathname.startsWith(expectedBase)) {
+        const isSharedRoute = pathname === '/dashboard/profile' || (pathname && pathname.startsWith('/dashboard/profile'));
+        
+        // If they are under /dashboard, enforce they stay in their lane (except for shared routes like /dashboard/profile)
+        if (!isSharedRoute && pathname && pathname.startsWith('/dashboard') && !pathname.startsWith(expectedBase)) {
           router.push(expectedBase);
         } else if (allowedRoles && !allowedRoles.includes(user.role)) {
           router.push(expectedBase);
@@ -35,7 +37,9 @@ export default function ProtectedRoute({ children, allowedRoles }: { children: R
   }
 
   const expectedBase = getDashboardRoute(user.role);
-  if (pathname && pathname.startsWith('/dashboard') && !pathname.startsWith(expectedBase)) {
+  const isSharedRoute = pathname === '/dashboard/profile' || (pathname && pathname.startsWith('/dashboard/profile'));
+  
+  if (!isSharedRoute && pathname && pathname.startsWith('/dashboard') && !pathname.startsWith(expectedBase)) {
     return null;
   }
   if (allowedRoles && !allowedRoles.includes(user.role)) {

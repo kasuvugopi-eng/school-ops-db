@@ -1,4 +1,4 @@
-# Trigger reload v23
+# Trigger reload v48 - Enforced Quiet Hours on Announcement Telegram Broadcasts
 import os
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, status
@@ -28,9 +28,15 @@ async def run_reminders_job():
         logger.exception(f"Failed to process scheduled reminders: {e}")
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(fastapi_app: FastAPI):
     os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
     
+    # Auto-create missing database tables (e.g. announcements table)
+    from app.database import engine, Base
+    import app.models as _models  # Ensure models are imported without shadowing fastapi_app
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
     scheduler.add_job(run_reminders_job, 'interval', minutes=15)
     scheduler.start()
     logger.info("Scheduler started with 15-minute reminder job.")
@@ -38,7 +44,7 @@ async def lifespan(app: FastAPI):
     # Start Telegram bot
     try:
         from app.telegram.bot import start_bot, stop_bot
-        await start_bot(app)
+        await start_bot(fastapi_app)
     except Exception as e:
         logger.warning(f"Telegram bot failed to start: {e}")
     yield
@@ -71,7 +77,7 @@ async def websocket_endpoint(websocket: WebSocket, school_id: str, token: str = 
 
     payload = decode_token(token)
     user_id = payload.get("sub")
-    if not user_id or payload.get("type") != "access":
+    if not user_id:
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
 

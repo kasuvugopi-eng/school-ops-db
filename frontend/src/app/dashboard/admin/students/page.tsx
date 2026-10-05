@@ -11,6 +11,10 @@ export default function AdminStudentsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [modalOpen, setModalOpen] = useState(false);
+  const [bulkModalOpen, setBulkModalOpen] = useState(false);
+  const [csvFile, setCsvFile] = useState<File | null>(null);
+  const [uploadingCsv, setUploadingCsv] = useState(false);
+  const [bulkResult, setBulkResult] = useState<any>(null);
   const [inviteRole, setInviteRole] = useState('STUDENT');
   const [inviteLink, setInviteLink] = useState('');
   const [targetClassId, setTargetClassId] = useState('');
@@ -18,7 +22,30 @@ export default function AdminStudentsPage() {
   const [relationship, setRelationship] = useState('mother');
   const [selectedGrade, setSelectedGrade] = useState('');
   const [inviteName, setInviteName] = useState('');
-  const [copied, setCopied] = useState(false);
+  // Assign Class to Student state
+  const [assignModalOpen, setAssignModalOpen] = useState(false);
+  const [assignStudent, setAssignStudent] = useState<any>(null);
+  const [assignClassId, setAssignClassId] = useState('');
+  const [assigningClass, setAssigningClass] = useState(false);
+
+  const handleSaveClassAssignment = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!assignClassId || !assignStudent) return alert('Please select a class.');
+    setAssigningClass(true);
+    try {
+      await api.post(`/api/classes/${assignClassId}/students?student_id=${assignStudent.id}`, {});
+      alert(`🎉 Successfully assigned ${assignStudent.full_name} to class!`);
+      setAssignModalOpen(false);
+      // Refresh students
+      const resStudents = await api.get<any>('/api/users?role=STUDENT');
+      setStudents(Array.isArray(resStudents) ? resStudents : (resStudents?.data ?? []));
+    } catch (err: any) {
+      console.error(err);
+      alert(`Failed to assign class: ${err.message || 'Error'}`);
+    } finally {
+      setAssigningClass(false);
+    }
+  };
 
   const availableGrades = Array.from(new Set(classes.map(c => c.grade_level).filter(Boolean)));
   const filteredClasses = selectedGrade 
@@ -71,6 +98,9 @@ export default function AdminStudentsPage() {
       <div className="flex justify-between items-center">
         <h1 className="text-2xl font-bold text-gray-900">Students & Guardians</h1>
         <div className="flex gap-2">
+          <button onClick={() => setBulkModalOpen(true)} className="bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700 flex items-center gap-1.5 shadow-sm">
+            <span>📥 Bulk CSV Import</span>
+          </button>
           <button onClick={() => { setInviteRole('STUDENT'); setTargetClassId(''); setModalOpen(true); setInviteLink(''); }} className="bg-indigo-600 text-white px-4 py-2 rounded-md hover:bg-indigo-700">Invite Student</button>
           <button onClick={() => { setInviteRole('GUARDIAN'); setTargetStudentId(''); setRelationship(''); setModalOpen(true); setInviteLink(''); }} className="bg-white text-indigo-600 border border-indigo-600 px-4 py-2 rounded-md hover:bg-indigo-50">Invite Guardian</button>
         </div>
@@ -87,6 +117,7 @@ export default function AdminStudentsPage() {
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Email</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Class</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Guardians</th>
+                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Actions</th>
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
@@ -94,7 +125,11 @@ export default function AdminStudentsPage() {
                 <tr key={s.id}>
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{s.full_name}</td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{s.email}</td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{s.class_name || 'Unassigned'}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                    <span className={`px-2 py-1 rounded text-xs font-semibold ${s.class_name ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}`}>
+                      {s.class_name || 'Unassigned'}
+                    </span>
+                  </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                     {s.guardians && s.guardians.length > 0 ? (
                       <ul className="list-disc pl-4">
@@ -104,9 +139,21 @@ export default function AdminStudentsPage() {
                       </ul>
                     ) : 'None'}
                   </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                    <button
+                      onClick={() => {
+                        setAssignStudent(s);
+                        setAssignClassId('');
+                        setAssignModalOpen(true);
+                      }}
+                      className="px-3 py-1 bg-indigo-50 text-indigo-600 border border-indigo-200 rounded text-xs hover:bg-indigo-100 font-semibold"
+                    >
+                      🏫 Assign Class
+                    </button>
+                  </td>
                 </tr>
               ))}
-              {students.length === 0 && <tr><td colSpan={4} className="px-6 py-4 text-center text-gray-500">No students found.</td></tr>}
+              {students.length === 0 && <tr><td colSpan={5} className="px-6 py-4 text-center text-gray-500">No students found.</td></tr>}
             </tbody>
           </table>
         </div>
@@ -279,6 +326,136 @@ export default function AdminStudentsPage() {
             </div>
           </div>
         )}
+      </Modal>
+
+      {/* Bulk CSV Import Modal */}
+      <Modal isOpen={bulkModalOpen} onClose={() => { setBulkModalOpen(false); setBulkResult(null); setCsvFile(null); }} title="📥 Bulk Student CSV Import">
+        {!bulkResult ? (
+          <form onSubmit={async (e) => {
+            e.preventDefault();
+            if (!csvFile) return alert('Please select a CSV file.');
+            setUploadingCsv(true);
+            try {
+              const res = await api.uploadFile<any>('/api/users/bulk-import-csv', csvFile, { role: 'STUDENT' });
+              setBulkResult(res);
+              // Refresh students list
+              const fresh = await api.get<any>('/api/users?role=STUDENT');
+              setStudents(Array.isArray(fresh) ? fresh : (fresh?.data ?? []));
+            } catch (err: any) {
+              console.error(err);
+              alert(`Import failed: ${err.message || 'Error uploading CSV'}`);
+            } finally {
+              setUploadingCsv(false);
+            }
+          }} className="space-y-4">
+            <p className="text-sm text-gray-600">Upload a CSV file containing student records. CSV columns should include <b>full_name</b> and <b>email</b>.</p>
+            
+            <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
+              <input
+                type="file"
+                accept=".csv"
+                required
+                onChange={(e) => setCsvFile(e.target.files?.[0] || null)}
+                className="w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100"
+              />
+            </div>
+
+            <div className="bg-gray-50 p-3 rounded text-xs text-gray-500 font-mono">
+              CSV Format Example:<br />
+              full_name,email<br />
+              Sai Kumar,sai@school.org<br />
+              Lakshmi Devi,lakshmi@school.org
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2">
+              <button type="button" onClick={() => setBulkModalOpen(false)} className="px-4 py-2 border rounded-md text-gray-700">Cancel</button>
+              <button type="submit" disabled={uploadingCsv} className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50">
+                {uploadingCsv ? 'Importing...' : '📥 Upload & Import CSV'}
+              </button>
+            </div>
+          </form>
+        ) : (
+          <div className="space-y-4">
+            <div className="p-4 bg-green-50 text-green-800 rounded-lg">
+              <h3 className="font-bold text-lg mb-1">🎉 CSV Import Completed!</h3>
+              <p className="text-sm">Successfully imported <b>{bulkResult.imported_count}</b> students.</p>
+              {bulkResult.skipped_count > 0 && (
+                <p className="text-xs text-yellow-700 mt-1">Skipped {bulkResult.skipped_count} existing email(s).</p>
+              )}
+            </div>
+
+            <div className="max-h-60 overflow-y-auto border rounded-md p-3 space-y-2">
+              <div className="flex justify-between items-center pb-1 border-b">
+                <div className="text-xs font-bold text-gray-500 uppercase">Created Students & Passwords:</div>
+                <button
+                  onClick={() => {
+                    if (!bulkResult.users || bulkResult.users.length === 0) return;
+                    const csvRows = [
+                      ["Full Name", "Email", "Temporary Password", "Telegram Bot Username"],
+                      ...bulkResult.users.map((u: any) => [u.full_name, u.email, u.temporary_password, "@school_ops_tetris_bot"])
+                    ];
+                    const blob = new Blob([csvRows.map(r => r.map(c => `"${c}"`).join(',')).join('\n')], { type: 'text/csv' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = 'imported_students_credentials.csv';
+                    a.click();
+                  }}
+                  className="text-xs px-2 py-1 bg-indigo-50 text-indigo-600 border border-indigo-200 rounded hover:bg-indigo-100 flex items-center gap-1 font-medium"
+                >
+                  📥 Download Credentials CSV
+                </button>
+              </div>
+              {bulkResult.users?.map((u: any, idx: number) => (
+                <div key={idx} className="text-xs flex justify-between bg-gray-50 p-2 rounded">
+                  <span><b>{u.full_name}</b> ({u.email})</span>
+                  <span className="font-mono text-indigo-600 font-bold">Pass: {u.temporary_password}</span>
+                </div>
+              ))}
+            </div>
+
+            <div className="bg-blue-50 border border-blue-100 p-3 rounded text-xs text-blue-800 space-y-1">
+              <p className="font-semibold text-blue-900">📲 Telegram Bot Link & Login Instructions:</p>
+              <p>1. Students log in at <b>http://localhost:3000/login</b> using their Email and Password above.</p>
+              <p>2. To receive instant notifications, students can connect to Telegram by searching <b>@school_ops_tetris_bot</b> on Telegram and clicking <b>/start</b>.</p>
+            </div>
+
+            <div className="flex justify-end">
+              <button onClick={() => { setBulkModalOpen(false); setBulkResult(null); setCsvFile(null); }} className="px-4 py-2 bg-indigo-600 text-white rounded-md">Done</button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* Assign Class Modal */}
+      <Modal isOpen={assignModalOpen} onClose={() => setAssignModalOpen(false)} title={`🏫 Assign Class - ${assignStudent?.full_name || 'Student'}`}>
+        <form onSubmit={handleSaveClassAssignment} className="space-y-4">
+          <p className="text-sm text-gray-600">Select the class to enroll <strong>{assignStudent?.full_name}</strong> into:</p>
+          
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Target Class</label>
+            <select
+              required
+              value={assignClassId}
+              onChange={(e) => setAssignClassId(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+            >
+              <option value="">-- Select Class --</option>
+              {classes.map((c: any) => (
+                <option key={c.id} value={c.id}>
+                  {c.name} (Grade {c.grade_level})
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="flex justify-end gap-2 pt-4">
+            <button type="button" onClick={() => setAssignModalOpen(false)} className="px-4 py-2 border rounded-md text-gray-700">Cancel</button>
+            <button type="submit" disabled={assigningClass} className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:opacity-50">
+              {assigningClass ? 'Assigning...' : 'Save Class Assignment'}
+            </button>
+          </div>
+        </form>
       </Modal>
     </div>
   );

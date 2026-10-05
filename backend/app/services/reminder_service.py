@@ -9,29 +9,36 @@ from app.models.enums import AssignmentState, SubmissionState, ReminderState, Re
 from app.services.audit_service import log_event
 import uuid
 
-async def get_quiet_hours(db: AsyncSession, school_id: uuid.UUID) -> tuple[int, int]:
-    """Get quiet hours for a school. Returns (start_hour, end_hour)."""
+async def get_quiet_hours(db: AsyncSession, school_id: uuid.UUID) -> tuple[int, int, bool]:
+    """Get quiet hours for a school. Returns (start_hour, end_hour, is_active)."""
     result = await db.execute(
         select(SchoolPolicy).where(
             SchoolPolicy.school_id == school_id,
-            SchoolPolicy.policy_type == PolicyType.QUIET_HOURS,
-            SchoolPolicy.is_active == True
+            SchoolPolicy.policy_type == PolicyType.QUIET_HOURS
         )
     )
     policy = result.scalar_one_or_none()
     if policy and policy.config:
         return (
             policy.config.get('start', 21),
-            policy.config.get('end', 7)
+            policy.config.get('end', 7),
+            policy.is_active
         )
-    return (21, 7)  # Default quiet hours
+    return (21, 7, True)  # Default quiet hours
 
-def is_quiet_hours(start: int, end: int) -> bool:
-    now_hour = datetime.now(timezone.utc).hour
+def is_quiet_hours(start: int, end: int, is_active: bool = True) -> bool:
+    if not is_active:
+        return False
+    from datetime import datetime, timezone, timedelta
+    ist_now = datetime.now(timezone.utc) + timedelta(hours=5, minutes=30)
+    now_hour = ist_now.hour
+
     if start > end:  # e.g., 21 to 7 (crosses midnight)
         return now_hour >= start or now_hour < end
-    else:
+    elif start < end:
         return start <= now_hour < end
+    else:
+        return False
 
 async def process_reminders_for_assignment(db: AsyncSession, assignment_id: uuid.UUID) -> dict:
     """Process reminders for a single assignment. Returns summary."""
@@ -40,9 +47,9 @@ async def process_reminders_for_assignment(db: AsyncSession, assignment_id: uuid
     if not assignment or assignment.state != AssignmentState.ACTIVE:
         return {"skipped": "assignment not active"}
     
-    # Check quiet hours
-    quiet_start, quiet_end = await get_quiet_hours(db, assignment.school_id)
-    if is_quiet_hours(quiet_start, quiet_end):
+    # Check quiet hours from Admin Settings
+    quiet_start, quiet_end, is_active = await get_quiet_hours(db, assignment.school_id)
+    if is_quiet_hours(quiet_start, quiet_end, is_active):
         return {"skipped": "quiet hours", "quiet_start": quiet_start, "quiet_end": quiet_end}
     
     # Get all submissions for this assignment
@@ -124,9 +131,12 @@ async def process_reminders_for_assignment(db: AsyncSession, assignment_id: uuid
     return summary
 
 async def process_queued_reminders(db: AsyncSession) -> int:
-    now_hour = datetime.now().hour
-    if now_hour >= 22 or now_hour < 7:
-        return 0
+    # Fetch first active school's policy or default
+    res = await db.execute(select(SchoolPolicy).where(SchoolPolicy.policy_type == PolicyType.QUIET_HOURS))
+    pol = res.scalars().first()
+    if pol and pol.config:
+        if is_quiet_hours(pol.config.get('start', 21), pol.config.get('end', 7), pol.is_active):
+            return 0
     
     result = await db.execute(
         select(Reminder).where(

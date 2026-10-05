@@ -9,6 +9,10 @@ export default function AdminTeachersPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [modalOpen, setModalOpen] = useState(false);
+  const [bulkModalOpen, setBulkModalOpen] = useState(false);
+  const [csvFile, setCsvFile] = useState<File | null>(null);
+  const [uploadingCsv, setUploadingCsv] = useState(false);
+  const [bulkResult, setBulkResult] = useState<any>(null);
   const [classes, setClasses] = useState<any[]>([]);
   const [inviteLink, setInviteLink] = useState('');
 
@@ -103,7 +107,12 @@ export default function AdminTeachersPage() {
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <h1 className="text-2xl font-bold text-gray-900">Teachers</h1>
-        <button onClick={() => { setModalOpen(true); setInviteLink(''); }} className="bg-indigo-600 text-white px-4 py-2 rounded-md hover:bg-indigo-700">Invite Teacher</button>
+        <div className="flex gap-2">
+          <button onClick={() => setBulkModalOpen(true)} className="bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700 flex items-center gap-1.5 shadow-sm">
+            <span>📥 Bulk CSV Import</span>
+          </button>
+          <button onClick={() => { setModalOpen(true); setInviteLink(''); }} className="bg-indigo-600 text-white px-4 py-2 rounded-md hover:bg-indigo-700">Invite Teacher</button>
+        </div>
       </div>
 
       {error && <div className="p-4 bg-red-50 text-red-700 rounded-md">{error}</div>}
@@ -257,6 +266,105 @@ export default function AdminTeachersPage() {
           </button>
         </div>
       </div>
+    </Modal>
+
+    {/* Bulk CSV Import Modal */}
+    <Modal isOpen={bulkModalOpen} onClose={() => { setBulkModalOpen(false); setBulkResult(null); setCsvFile(null); }} title="📥 Bulk Teacher CSV Import">
+      {!bulkResult ? (
+        <form onSubmit={async (e) => {
+          e.preventDefault();
+          if (!csvFile) return alert('Please select a CSV file.');
+          setUploadingCsv(true);
+          try {
+            const res = await api.uploadFile<any>('/api/users/bulk-import-csv', csvFile, { role: 'TEACHER' });
+            setBulkResult(res);
+            // Refresh teachers list
+            const fresh = await api.get<any>('/api/users?role=TEACHER');
+            setTeachers(Array.isArray(fresh) ? fresh : (fresh?.data ?? []));
+          } catch (err: any) {
+            console.error(err);
+            alert(`Import failed: ${err.message || 'Error uploading CSV'}`);
+          } finally {
+            setUploadingCsv(false);
+          }
+        }} className="space-y-4">
+          <p className="text-sm text-gray-600">Upload a CSV file containing teacher records. CSV columns should include <b>full_name</b> and <b>email</b>.</p>
+          
+          <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
+            <input
+              type="file"
+              accept=".csv"
+              required
+              onChange={(e) => setCsvFile(e.target.files?.[0] || null)}
+              className="w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100"
+            />
+          </div>
+
+          <div className="bg-gray-50 p-3 rounded text-xs text-gray-500 font-mono">
+            CSV Format Example:<br />
+            full_name,email<br />
+            Rajesh Sharma,rajesh@school.org<br />
+            Priya Verma,priya@school.org
+          </div>
+
+          <div className="flex justify-end gap-2 pt-2">
+            <button type="button" onClick={() => setBulkModalOpen(false)} className="px-4 py-2 border rounded-md text-gray-700">Cancel</button>
+            <button type="submit" disabled={uploadingCsv} className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50">
+              {uploadingCsv ? 'Importing...' : '📥 Upload & Import CSV'}
+            </button>
+          </div>
+        </form>
+      ) : (
+        <div className="space-y-4">
+          <div className="p-4 bg-green-50 text-green-800 rounded-lg">
+            <h3 className="font-bold text-lg mb-1">🎉 CSV Import Completed!</h3>
+            <p className="text-sm">Successfully imported <b>{bulkResult.imported_count}</b> teachers.</p>
+            {bulkResult.skipped_count > 0 && (
+              <p className="text-xs text-yellow-700 mt-1">Skipped {bulkResult.skipped_count} existing email(s).</p>
+            )}
+          </div>
+
+          <div className="max-h-60 overflow-y-auto border rounded-md p-3 space-y-2">
+            <div className="flex justify-between items-center pb-1 border-b">
+              <div className="text-xs font-bold text-gray-500 uppercase">Created Teachers & Passwords:</div>
+              <button
+                onClick={() => {
+                  if (!bulkResult.users || bulkResult.users.length === 0) return;
+                  const csvRows = [
+                    ["Full Name", "Email", "Temporary Password", "Telegram Bot Username"],
+                    ...bulkResult.users.map((u: any) => [u.full_name, u.email, u.temporary_password, "@school_ops_tetris_bot"])
+                  ];
+                  const blob = new Blob([csvRows.map(r => r.map(c => `"${c}"`).join(',')).join('\n')], { type: 'text/csv' });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement('a');
+                  a.href = url;
+                  a.download = 'imported_teachers_credentials.csv';
+                  a.click();
+                }}
+                className="text-xs px-2 py-1 bg-indigo-50 text-indigo-600 border border-indigo-200 rounded hover:bg-indigo-100 flex items-center gap-1 font-medium"
+              >
+                📥 Download Credentials CSV
+              </button>
+            </div>
+            {bulkResult.users?.map((u: any, idx: number) => (
+              <div key={idx} className="text-xs flex justify-between bg-gray-50 p-2 rounded">
+                <span><b>{u.full_name}</b> ({u.email})</span>
+                <span className="font-mono text-indigo-600 font-bold">Pass: {u.temporary_password}</span>
+              </div>
+            ))}
+          </div>
+
+          <div className="bg-blue-50 border border-blue-100 p-3 rounded text-xs text-blue-800 space-y-1">
+            <p className="font-semibold text-blue-900">📲 Telegram Bot Link & Login Instructions:</p>
+            <p>1. Teachers log in at <b>http://localhost:3000/login</b> using their Email and Password above.</p>
+            <p>2. To receive instant notifications, teachers can connect to Telegram by searching <b>@school_ops_tetris_bot</b> on Telegram and clicking <b>/start</b>.</p>
+          </div>
+
+          <div className="flex justify-end">
+            <button onClick={() => { setBulkModalOpen(false); setBulkResult(null); setCsvFile(null); }} className="px-4 py-2 bg-indigo-600 text-white rounded-md">Done</button>
+          </div>
+        </div>
+      )}
     </Modal>
   </div>
 );

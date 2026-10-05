@@ -33,3 +33,67 @@ async def update_my_school(data: UpdateSchoolRequest, current_user: User = Depen
         school.timezone = data.timezone
         
     return school
+
+from pydantic import BaseModel
+from app.models.school_policy import SchoolPolicy
+from app.models.enums import PolicyType
+
+class UpdateQuietHoursRequest(BaseModel):
+    start_hour: int # 0-23
+    end_hour: int   # 0-23
+    is_active: bool = True
+
+@router.get("/policies/quiet-hours")
+async def get_quiet_hours_policy(
+    current_user: User = Depends(require_role(UserRole.ADMIN)),
+    db: AsyncSession = Depends(get_db)
+):
+    res = await db.execute(
+        select(SchoolPolicy).where(
+            SchoolPolicy.school_id == current_user.school_id,
+            SchoolPolicy.policy_type == PolicyType.QUIET_HOURS
+        )
+    )
+    policy = res.scalar_one_or_none()
+    if policy and policy.config:
+        return {
+            "start_hour": policy.config.get("start", 21),
+            "end_hour": policy.config.get("end", 7),
+            "is_active": policy.is_active
+        }
+    return {"start_hour": 21, "end_hour": 7, "is_active": True}
+
+@router.put("/policies/quiet-hours")
+async def update_quiet_hours_policy(
+    body: UpdateQuietHoursRequest,
+    current_user: User = Depends(require_role(UserRole.ADMIN)),
+    db: AsyncSession = Depends(get_db)
+):
+    if not (0 <= body.start_hour <= 23) or not (0 <= body.end_hour <= 23):
+        raise HTTPException(status_code=400, detail="Start and End hours must be between 0 and 23.")
+
+    res = await db.execute(
+        select(SchoolPolicy).where(
+            SchoolPolicy.school_id == current_user.school_id,
+            SchoolPolicy.policy_type == PolicyType.QUIET_HOURS
+        )
+    )
+    policy = res.scalar_one_or_none()
+    if not policy:
+        policy = SchoolPolicy(
+            school_id=current_user.school_id,
+            policy_type=PolicyType.QUIET_HOURS,
+            config={"start": body.start_hour, "end": body.end_hour},
+            is_active=body.is_active
+        )
+        db.add(policy)
+    else:
+        policy.config = {"start": body.start_hour, "end": body.end_hour}
+        policy.is_active = body.is_active
+
+    await db.commit()
+    return {
+        "start_hour": body.start_hour,
+        "end_hour": body.end_hour,
+        "is_active": policy.is_active
+    }

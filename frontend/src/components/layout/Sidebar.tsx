@@ -16,19 +16,26 @@ export default function Sidebar({ isOpen, onClose }: { isOpen: boolean, onClose:
       { href: '/dashboard/admin/classes', label: 'Classes', icon: '🏫' },
       { href: '/dashboard/admin/teachers', label: 'Teachers', icon: '👨‍🏫' },
       { href: '/dashboard/admin/students', label: 'Students', icon: '🎓' },
+      { href: '/dashboard/admin/announcements', label: 'Announcements', icon: '📢' },
+      { href: '/dashboard/admin/reports', label: 'Reports & Export', icon: '📈' },
+      { href: '/dashboard/admin/settings', label: 'School Settings', icon: '⚙️' },
       { href: '/dashboard/admin/documents', label: 'Documents', icon: '📄' },
       { href: '/dashboard/admin/audit', label: 'Audit Log', icon: '📋' },
+      { href: '/dashboard/profile', label: 'My Profile', icon: '👤' },
     ],
     TEACHER: [
       { href: '/dashboard/teacher', label: 'Overview', icon: '📊' },
       { href: '/dashboard/teacher/assignments', label: 'Assignments', icon: '📝' },
       { href: '/dashboard/teacher/documents', label: 'Documents', icon: '📄' },
+      { href: '/dashboard/profile', label: 'My Profile', icon: '👤' },
     ],
     STUDENT: [
       { href: '/dashboard/student', label: 'My Assignments', icon: '🎒' },
+      { href: '/dashboard/profile', label: 'My Profile', icon: '👤' },
     ],
     GUARDIAN: [
       { href: '/dashboard/parent', label: 'Child Progress', icon: '📈' },
+      { href: '/dashboard/profile', label: 'My Profile', icon: '👤' },
     ],
   }[user.role as 'ADMIN' | 'TEACHER' | 'STUDENT' | 'GUARDIAN'] || [];
 

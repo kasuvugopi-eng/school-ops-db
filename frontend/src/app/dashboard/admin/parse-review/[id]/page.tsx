@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import api from '@/lib/api';
 import { useParams, useRouter } from 'next/navigation';
 
-export default function ParseReviewPage() {
+export default function AdminParseReviewPage() {
   const { id } = useParams();
   const router = useRouter();
   const [data, setData] = useState<any>(null);
@@ -252,7 +252,7 @@ export default function ParseReviewPage() {
   return (
     <div className="max-w-4xl mx-auto space-y-6">
       <div className="flex justify-between items-center">
-        <h1 className="text-2xl font-bold text-gray-900">Review Parsed Document</h1>
+        <h1 className="text-2xl font-bold text-gray-900">Review Parsed Document (Admin)</h1>
         <div className="bg-indigo-100 text-indigo-800 px-3 py-1 rounded-full text-sm font-medium">
           Confidence: {confidence}%
         </div>

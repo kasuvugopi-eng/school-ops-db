@@ -70,6 +70,7 @@ export default function AdminDocumentsPage() {
         { value: 'CLASS_MATERIAL', label: 'Class Material' },
       ]
     : [
+        { value: 'ASSIGNMENT_BRIEF', label: 'Assignment Brief (Homework/PDF)' },
         { value: 'ROSTER', label: 'Class Roster' },
         { value: 'POLICY', label: 'School Policy' },
         { value: 'CLASS_MATERIAL', label: 'Class Material' },
@@ -135,7 +136,15 @@ export default function AdminDocumentsPage() {
                     {getStatusLabel(doc.approval_state || 'UPLOADED')}
                   </span>
                 </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 space-x-4">
+                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 space-x-3">
+                  <a
+                    href={`http://localhost:8000/api/documents/${doc.id}/download`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-gray-600 hover:text-gray-900 font-medium inline-flex items-center gap-1"
+                  >
+                    📥 Download
+                  </a>
                   {!doc.approval_state && ['ASSIGNMENT_BRIEF', 'ROSTER'].includes(doc.document_type) && (
                     <button 
                       onClick={() => handleParse(doc.id)} 

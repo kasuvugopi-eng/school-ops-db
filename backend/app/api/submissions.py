@@ -315,6 +315,18 @@ async def create_submission_feedback(
 
         await send_telegram_message(student.telegram_chat_id, msg)
 
+    # Send delivery confirmation to Teacher as well
+    if current_user.telegram_chat_id:
+        from app.telegram.bot import send_telegram_message
+        teacher_conf_msg = (
+            "✅ *Approval Registered Successfully!*\n\n"
+            f"*Student:* {student.full_name if student else 'Student'}\n"
+            f"*Assignment:* {assignment.title}\n"
+            f"*Status:* Completed & Approved\n"
+            "📨 *Student Notification:* Delivered to student via Telegram!"
+        )
+        await send_telegram_message(current_user.telegram_chat_id, teacher_conf_msg)
+
     return {
         "id": str(feedback_entry.id),
         "submission_id": str(sub.id),

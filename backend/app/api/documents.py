@@ -105,8 +105,10 @@ async def list_documents(
         
     return docs_out
 
-@router.get("/{id}")
-async def get_document(
+from fastapi.responses import FileResponse
+
+@router.get("/{id}/download")
+async def download_document(
     id: uuid.UUID,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
@@ -116,12 +118,9 @@ async def get_document(
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
     assert_same_school(current_user, doc.school_id)
-    return {
-        "id": str(doc.id), "document_type": doc.document_type.value,
-        "original_filename": doc.original_filename, "mime_type": doc.mime_type,
-        "file_size": doc.file_size, "uploaded_by": str(doc.uploaded_by),
-        "created_at": str(doc.created_at)
-    }
+    if not os.path.exists(doc.file_path):
+        raise HTTPException(status_code=404, detail="File not found on disk")
+    return FileResponse(doc.file_path, filename=doc.original_filename, media_type=doc.mime_type or "application/octet-stream")
 
 @router.post("/{id}/parse")
 async def parse_document(

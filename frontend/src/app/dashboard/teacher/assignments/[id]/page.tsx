@@ -116,8 +116,11 @@ export default function AssignmentDetailPage() {
               )}
 
               {(sub.content_text || sub.content) && (
-                <div className="bg-gray-50 p-4 rounded-md text-gray-800 text-sm mb-4 border border-gray-200">
-                  {sub.content_text || sub.content}
+                <div className="bg-indigo-50/60 p-4 rounded-md text-gray-800 text-sm mb-4 border border-indigo-100">
+                  <div className="text-xs font-semibold text-indigo-700 uppercase tracking-wider mb-1 flex items-center gap-1">
+                    📄 Parsed Content / Submission Preview
+                  </div>
+                  <div className="whitespace-pre-wrap font-sans">{sub.content_text || sub.content}</div>
                 </div>
               )}
 

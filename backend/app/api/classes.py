@@ -1,4 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Query, Body
+from typing import Optional
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from app.database import get_db
@@ -181,14 +183,23 @@ async def assign_teacher(
     await db.commit()
     return {"message": "Teacher assigned", "teacher_id": str(teacher_id), "class_id": str(class_id)}
 
+class EnrollStudentRequest(BaseModel):
+    student_id: Optional[uuid.UUID] = None
+
 @router.post("/{class_id}/students")
 async def enroll_student(
     class_id: uuid.UUID,
     request: Request,
-    student_id: uuid.UUID,
+    student_id: Optional[uuid.UUID] = Query(None),
+    body_data: Optional[EnrollStudentRequest] = Body(None),
     current_user: User = Depends(require_role(UserRole.ADMIN)),
     db: AsyncSession = Depends(get_db)
 ):
+    target_student_id = student_id or (body_data.student_id if body_data else None)
+    if not target_student_id:
+        raise HTTPException(status_code=400, detail="student_id is required")
+    student_id = target_student_id
+
     cls_result = await db.execute(select(GradeClass).where(GradeClass.id == class_id))
     grade_class = cls_result.scalar_one_or_none()
     if not grade_class:
