@@ -17,6 +17,8 @@ def create_bot_app() -> Application | None:
     app.add_handler(CommandHandler("link", start.handle_link))
     app.add_handler(CommandHandler("status", student.handle_status))
     app.add_handler(CommandHandler("help", start.handle_help))
+    app.add_handler(CommandHandler("cancel_assignment", teacher.handle_cancel_assignment))
+    app.add_handler(CommandHandler("cancel", teacher.handle_cancel_assignment))
     
     # Natural language message handler
     app.add_handler(MessageHandler(
@@ -84,8 +86,19 @@ async def stop_bot():
 
 async def send_telegram_message(chat_id: str, text: str):
     global bot_app
-    if bot_app and bot_app.bot:
+    bot_instance = bot_app.bot if (bot_app and bot_app.bot) else None
+    if not bot_instance and settings.TELEGRAM_BOT_TOKEN:
+        from telegram import Bot
+        bot_instance = Bot(token=settings.TELEGRAM_BOT_TOKEN)
+        
+    if bot_instance:
         try:
-            await bot_app.bot.send_message(chat_id=chat_id, text=text, parse_mode="Markdown")
+            await bot_instance.send_message(chat_id=chat_id, text=text, parse_mode="Markdown")
+            logger.info(f"Successfully sent Telegram notification to chat_id {chat_id}")
         except Exception as e:
-            logger.error(f"Failed to send telegram message to {chat_id}: {e}")
+            # Fallback without Markdown if markdown parsing fails
+            try:
+                await bot_instance.send_message(chat_id=chat_id, text=text)
+                logger.info(f"Successfully sent Telegram notification (plain text) to chat_id {chat_id}")
+            except Exception as ex:
+                logger.error(f"Failed to send telegram message to {chat_id}: {ex}")

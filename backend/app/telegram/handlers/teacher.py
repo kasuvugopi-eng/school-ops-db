@@ -218,3 +218,52 @@ async def handle_teacher_file(update: Update, context: ContextTypes.DEFAULT_TYPE
         
         caption = update.message.caption or ""
         await process_teacher_assignment_flow(update, context, user, raw_text=caption, file_path=file_path, mime_type=mime_type)
+
+async def handle_cancel_assignment(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /cancel_assignment command for teachers."""
+    chat_id = str(update.effective_chat.id)
+    args = context.args
+    from app.telegram.handlers.fallback import resolve_user
+    from app.models.assignment import Assignment
+    from app.services.assignment_service import update_assignment_state
+
+    async with async_sessionmaker_instance() as db:
+        user = await resolve_user(chat_id, db)
+        if not user or user.role != UserRole.TEACHER:
+            await update.message.reply_text("⚠️ Only teachers can cancel assignments.")
+            return
+
+        target_assignment = None
+        if args:
+            asgn_id_str = args[0].strip()
+            try:
+                asgn_id = uuid.UUID(asgn_id_str)
+                res = await db.execute(select(Assignment).where(Assignment.id == asgn_id, Assignment.created_by == user.id))
+                target_assignment = res.scalar_one_or_none()
+            except ValueError:
+                pass
+
+        if not target_assignment:
+            # Pick the most recent active or draft assignment created by this teacher
+            res = await db.execute(
+                select(Assignment)
+                .where(Assignment.created_by == user.id, Assignment.state.in_([AssignmentState.ACTIVE, AssignmentState.DRAFT]))
+                .order_by(Assignment.created_at.desc())
+                .limit(1)
+            )
+            target_assignment = res.scalar_one_or_none()
+
+        if not target_assignment:
+            await update.message.reply_text("⚠️ No active assignment found to cancel.")
+            return
+
+        try:
+            await update_assignment_state(db, target_assignment.id, AssignmentState.CANCELLED, user)
+            await update.message.reply_text(
+                f"❌ *Assignment Cancelled Successfully!*\n\n"
+                f"📌 *Title*: {target_assignment.title}\n\n"
+                f"🔔 Enrolled students have been notified of the cancellation via Telegram.",
+                parse_mode="Markdown"
+            )
+        except Exception as e:
+            await update.message.reply_text(f"⚠️ Failed to cancel assignment: {e}")

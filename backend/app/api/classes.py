@@ -22,6 +22,17 @@ async def create_class(
     current_user: User = Depends(require_role(UserRole.ADMIN)),
     db: AsyncSession = Depends(get_db)
 ):
+    # Check if duplicate class exists
+    existing = await db.execute(
+        select(GradeClass).where(
+            GradeClass.school_id == current_user.school_id,
+            GradeClass.name == data.name,
+            GradeClass.grade_level == data.grade_level
+        )
+    )
+    if existing.scalar_one_or_none():
+        raise HTTPException(status_code=400, detail=f"Class '{data.name}' with grade level '{data.grade_level}' already exists.")
+
     grade_class = GradeClass(
         school_id=current_user.school_id,
         name=data.name,
@@ -48,23 +59,31 @@ async def list_classes(
     classes = result.scalars().all()
     response = []
     for c in classes:
-        # Count teachers
-        t_count = await db.execute(
-            select(func.count(TeacherClassAssignment.id)).where(
-                TeacherClassAssignment.class_id == c.id
-            )
+        # Fetch teachers list
+        t_res = await db.execute(
+            select(User)
+            .join(TeacherClassAssignment, TeacherClassAssignment.teacher_id == User.id)
+            .where(TeacherClassAssignment.class_id == c.id)
         )
-        # Count students
-        s_count = await db.execute(
-            select(func.count(StudentEnrollment.id)).where(
-                StudentEnrollment.class_id == c.id
-            )
+        teachers_objs = t_res.scalars().all()
+        teachers_list = [{"id": str(t.id), "full_name": t.full_name, "email": t.email} for t in teachers_objs]
+        
+        # Fetch students list
+        s_res = await db.execute(
+            select(User)
+            .join(StudentEnrollment, StudentEnrollment.student_id == User.id)
+            .where(StudentEnrollment.class_id == c.id)
         )
+        students_objs = s_res.scalars().all()
+        students_list = [{"id": str(s.id), "full_name": s.full_name, "email": s.email} for s in students_objs]
+        
         response.append({
             "id": str(c.id), "name": c.name, "grade_level": c.grade_level,
             "school_id": str(c.school_id), "created_at": str(c.created_at),
-            "teacher_count": t_count.scalar() or 0,
-            "student_count": s_count.scalar() or 0
+            "teacher_count": len(teachers_list),
+            "student_count": len(students_list),
+            "teachers": teachers_list,
+            "students": students_list
         })
     return response
 

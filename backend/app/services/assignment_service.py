@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from app.models.assignment import Assignment
@@ -15,6 +15,8 @@ ASSIGNMENT_TRANSITIONS = {
 }
 
 def validate_assignment_transition(current: AssignmentState, target: AssignmentState) -> bool:
+    if current == target:
+        return True
     if target not in ASSIGNMENT_TRANSITIONS.get(current, set()):
         raise ValueError(f"Invalid transition from {current} to {target}")
     return True
@@ -33,26 +35,96 @@ async def create_assignment(db: AsyncSession, data: dict, target_class_id: uuid.
     await db.commit()
     await db.refresh(assignment)
     
-    if assignment.state == AssignmentState.ACTIVE:
-        from app.models.user import User
+def format_datetime_ist(dt) -> str:
+    if not dt:
+        return "N/A"
+    if isinstance(dt, datetime):
+        ist_tz = timezone(timedelta(hours=5, minutes=30))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        ist_dt = dt.astimezone(ist_tz)
+        return ist_dt.strftime("%d-%m-%Y %I:%M %p IST")
+    return str(dt)
+
+async def notify_students_for_assignment(db: AsyncSession, assignment: Assignment):
+    from app.models.user import User
+    from app.models.grade_class import GradeClass
+    from app.models.student_enrollment import StudentEnrollment
+    from app.telegram.bot import send_telegram_message
+
+    # Fetch teacher name
+    teacher_res = await db.execute(select(User.full_name).where(User.id == assignment.created_by))
+    teacher_name = teacher_res.scalar_one_or_none() or "Teacher"
+
+    # Fetch class and grade level info
+    class_name = "All Classes"
+    grade = "General"
+    if assignment.target_class_id:
+        cls_res = await db.execute(select(GradeClass).where(GradeClass.id == assignment.target_class_id))
+        target_cls = cls_res.scalar_one_or_none()
+        if target_cls:
+            class_name = target_cls.name
+            grade = target_cls.grade_level or "General"
+
+    # Redesigned Student Notification Message
+    student_msg = (
+        "📌 *Assignment Notification*\n\n"
+        f"*Assignment name:* {assignment.title}\n"
+        f"*class-grade:* {class_name} ({grade})\n"
+        f"*subject:* {assignment.subject or 'General'}\n"
+        f"*assigned date:* {format_datetime_ist(assignment.created_at)}\n"
+        f"*due date:* {format_datetime_ist(assignment.due_date)}\n"
+        f"*teacher name:* {teacher_name}\n\n"
+        f"📝 *Instructions:* {assignment.instructions or 'See portal for details.'}"
+    )
+
+    # Find notifiable enrolled students
+    if assignment.target_class_id:
+        students_query = select(User).join(StudentEnrollment, StudentEnrollment.student_id == User.id).where(
+            StudentEnrollment.class_id == assignment.target_class_id,
+            User.telegram_chat_id.isnot(None)
+        )
+    else:
         students_query = select(User).join(Submission, Submission.student_id == User.id).where(
             Submission.assignment_id == assignment.id, 
             User.telegram_chat_id.isnot(None)
         )
-        students_res = await db.execute(students_query)
-        notifiable_students = students_res.scalars().all()
-        
-        from app.telegram.bot import send_telegram_message
-        msg = f"🔔 *New Assignment: {assignment.title}*\n\n"
-        if assignment.subject:
-            msg += f"📚 *Subject*: {assignment.subject}\n"
-        if assignment.due_date:
-            due_str = assignment.due_date.strftime('%Y-%m-%d %H:%M') if isinstance(assignment.due_date, datetime) else str(assignment.due_date)
-            msg += f"⏰ *Due Date*: {due_str}\n"
-        msg += f"\n📝 *Instructions*: {assignment.instructions or 'See portal for details.'}"
-        
-        for student in notifiable_students:
-            await send_telegram_message(student.telegram_chat_id, msg)
+    students_res = await db.execute(students_query)
+    notifiable_students = students_res.scalars().all()
+
+    for student in notifiable_students:
+        await send_telegram_message(student.telegram_chat_id, student_msg)
+
+    # Teacher Delivery Confirmation Notification
+    teacher_user_res = await db.execute(select(User).where(User.id == assignment.created_by))
+    teacher_user = teacher_user_res.scalar_one_or_none()
+    if teacher_user and teacher_user.telegram_chat_id:
+        teacher_msg = (
+            "✅ *Assignment Published Successfully!*\n\n"
+            f"*assignment name:* {assignment.title}\n"
+            f"*class-grade:* {class_name} ({grade})\n"
+            f"*assigned date:* {format_datetime_ist(assignment.created_at)}\n"
+            f"*due date:* {format_datetime_ist(assignment.due_date)}\n\n"
+            f"💡 _Need to cancel? Reply `/cancel_assignment {assignment.id}` or `/cancel`_"
+        )
+        await send_telegram_message(teacher_user.telegram_chat_id, teacher_msg)
+
+async def create_assignment(db: AsyncSession, data: dict, target_class_id: uuid.UUID, user: dict):
+    data = {k: v for k, v in data.items() if k != "target_class_id"}
+    assignment = Assignment(**data, created_by=user.id, school_id=user.school_id, target_class_id=target_class_id)
+    db.add(assignment)
+    await db.flush()
+    
+    await log_event(db, "assignment.created", school_id=user.school_id, actor_id=user.id, resource_type="assignment", resource_id=assignment.id)
+    
+    from app.services.submission_service import create_submissions_for_assignment
+    await create_submissions_for_assignment(db, assignment.id, assignment.target_student_ids, [target_class_id])
+    
+    await db.commit()
+    await db.refresh(assignment)
+    
+    if assignment.state == AssignmentState.ACTIVE:
+        await notify_students_for_assignment(db, assignment)
             
     return assignment
 
@@ -75,10 +147,37 @@ async def get_assignment(db: AsyncSession, assignment_id: uuid.UUID):
         assignment.submission_summary = {state.value: count for state, count in sub_result.all()}
     return assignment
 
+async def notify_students_cancelled_assignment(db: AsyncSession, assignment: Assignment):
+    from app.models.user import User
+    from app.models.student_enrollment import StudentEnrollment
+    if assignment.target_class_id:
+        students_query = select(User).join(StudentEnrollment, StudentEnrollment.student_id == User.id).where(
+            StudentEnrollment.class_id == assignment.target_class_id,
+            User.telegram_chat_id.isnot(None)
+        )
+    else:
+        students_query = select(User).join(Submission, Submission.student_id == User.id).where(
+            Submission.assignment_id == assignment.id, 
+            User.telegram_chat_id.isnot(None)
+        )
+    students_res = await db.execute(students_query)
+    notifiable_students = students_res.scalars().all()
+    
+    from app.telegram.bot import send_telegram_message
+    msg = f"❌ *Assignment Cancelled: {assignment.title}*\n\n"
+    if assignment.subject:
+        msg += f"📚 *Subject*: {assignment.subject}\n"
+    msg += "\n⚠️ This assignment has been cancelled by your teacher."
+    
+    for student in notifiable_students:
+        await send_telegram_message(student.telegram_chat_id, msg)
+
 async def update_assignment_state(db: AsyncSession, assignment_id: uuid.UUID, new_state: AssignmentState, user: dict):
     assignment = await get_assignment(db, assignment_id)
     if not assignment:
         raise ValueError("Assignment not found")
+    if assignment.state == new_state:
+        return assignment
     validate_assignment_transition(assignment.state, new_state)
     assignment.state = new_state
     await db.commit()
@@ -86,28 +185,10 @@ async def update_assignment_state(db: AsyncSession, assignment_id: uuid.UUID, ne
     
     if new_state == AssignmentState.ACTIVE:
         event_name = "assignment.activated"
-        # Notify all students who have a submission for this assignment
-        from app.models.user import User
-        students_query = select(User).join(Submission, Submission.student_id == User.id).where(
-            Submission.assignment_id == assignment_id, 
-            User.telegram_chat_id.isnot(None)
-        )
-        students_res = await db.execute(students_query)
-        notifiable_students = students_res.scalars().all()
-        
-        from app.telegram.bot import send_telegram_message
-        msg = f"🔔 *New Assignment: {assignment.title}*\n\n"
-        if assignment.subject:
-            msg += f"📚 *Subject*: {assignment.subject}\n"
-        if assignment.due_date:
-            # Format datetime
-            due_str = assignment.due_date.strftime('%Y-%m-%d %H:%M') if isinstance(assignment.due_date, datetime) else str(assignment.due_date)
-            msg += f"⏰ *Due Date*: {due_str}\n"
-        msg += f"\n📝 *Instructions*: {assignment.instructions or 'See portal for details.'}"
-        
-        for student in notifiable_students:
-            await send_telegram_message(student.telegram_chat_id, msg)
-            
+        await notify_students_for_assignment(db, assignment)
+    elif new_state == AssignmentState.CANCELLED:
+        event_name = "assignment.cancelled"
+        await notify_students_cancelled_assignment(db, assignment)
     else:
         event_name = "assignment.state_updated"
         

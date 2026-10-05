@@ -396,8 +396,8 @@ async def clarify_parse(
         ).order_by(DocumentParseResult.created_at.desc())
     )
     parse_result = result.scalar_one_or_none()
-    if not parse_result or parse_result.approval_state != ParseApprovalState.NEEDS_CLARIFICATION:
-        raise HTTPException(status_code=400, detail="Document does not need clarification")
+    if not parse_result or parse_result.approval_state not in (ParseApprovalState.NEEDS_CLARIFICATION, ParseApprovalState.PENDING):
+        raise HTTPException(status_code=400, detail="Document cannot be updated in its current state")
     
     if req.target_class_id:
         from app.models.grade_class import GradeClass

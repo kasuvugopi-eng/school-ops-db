@@ -85,9 +85,11 @@ export default function AssignmentDetailPage() {
         </div>
 
         <div className="flex gap-2">
-          {assignment.state === 'DRAFT' && <button onClick={() => updateState('ACTIVE')} className="bg-indigo-600 text-white px-4 py-2 rounded-md">Activate</button>}
-          {assignment.state === 'ACTIVE' && <button onClick={() => updateState('COMPLETED')} className="bg-green-600 text-white px-4 py-2 rounded-md">Mark Completed</button>}
-          <button onClick={() => updateState('CANCELLED')} className="bg-white text-red-600 border border-red-600 px-4 py-2 rounded-md">Cancel</button>
+          {assignment.state === 'DRAFT' && <button onClick={() => updateState('ACTIVE')} className="bg-indigo-600 text-white px-4 py-2 rounded-md hover:bg-indigo-700">Activate</button>}
+          {assignment.state === 'ACTIVE' && <button onClick={() => updateState('COMPLETED')} className="bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700">Mark Completed</button>}
+          {['DRAFT', 'ACTIVE'].includes(assignment.state) && (
+            <button onClick={() => updateState('CANCELLED')} className="bg-white text-red-600 border border-red-600 px-4 py-2 rounded-md hover:bg-red-50">Cancel</button>
+          )}
         </div>
       </div>
 

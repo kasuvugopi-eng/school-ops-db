@@ -116,6 +116,24 @@ async def accept_invite(
             from app.services.audit_service import log_event
             await log_event(db, "student.enrolled", school_id=user.school_id, actor_id=user.id, resource_type="enrollment", resource_id=enrollment.id)
             
+    if invite.role == UserRole.TEACHER and invite.target_class_id:
+        from app.models.teacher_class import TeacherClassAssignment
+        existing_tc = await db.execute(
+            select(TeacherClassAssignment).where(
+                TeacherClassAssignment.teacher_id == user.id,
+                TeacherClassAssignment.class_id == invite.target_class_id
+            )
+        )
+        if not existing_tc.scalar_one_or_none():
+            tc_assignment = TeacherClassAssignment(
+                teacher_id=user.id,
+                class_id=invite.target_class_id
+            )
+            db.add(tc_assignment)
+            await db.flush()
+            from app.services.audit_service import log_event
+            await log_event(db, "teacher.assigned_to_class", school_id=user.school_id, actor_id=user.id, resource_type="teacher_class_assignment", resource_id=tc_assignment.id)
+
     if invite.role == UserRole.GUARDIAN and invite.target_student_id:
         from app.models.guardian_link import GuardianLink
         existing_link = await db.execute(select(GuardianLink).where(GuardianLink.guardian_id == user.id, GuardianLink.student_id == invite.target_student_id))

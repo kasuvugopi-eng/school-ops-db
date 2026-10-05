@@ -10,9 +10,8 @@ export default function AdminClassesPage() {
   const [modalOpen, setModalOpen] = useState(false);
   
   const [formData, setFormData] = useState({ name: '', grade_level: '1' });
-  const [teachers, setTeachers] = useState<any[]>([]);
-  const [students, setStudents] = useState<any[]>([]);
-  const [assignData, setAssignData] = useState<{[key: string]: { teacher_id: string, student_id: string }}>({});
+  const [expandedTeachers, setExpandedTeachers] = useState<Record<string, boolean>>({});
+  const [expandedStudents, setExpandedStudents] = useState<Record<string, boolean>>({});
 
   const fetchClasses = async () => {
     try {
@@ -25,23 +24,25 @@ export default function AdminClassesPage() {
     }
   };
 
-  const fetchUsers = async () => {
-    try {
-      const [t, s] = await Promise.all([
-        api.get<any>('/api/users?role=TEACHER'),
-        api.get<any>('/api/users?role=STUDENT')
-      ]);
-      setTeachers(Array.isArray(t) ? t : (t?.data ?? []));
-      setStudents((Array.isArray(s) ? s : (s?.data ?? [])).filter((st: any) => !st.class_name));
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
   useEffect(() => { 
     fetchClasses();
-    fetchUsers();
   }, []);
+
+  const toggleTeachers = (classId: string) => {
+    setExpandedTeachers(prev => {
+      const isOpening = !prev[classId];
+      if (isOpening) fetchClasses();
+      return { ...prev, [classId]: isOpening };
+    });
+  };
+
+  const toggleStudents = (classId: string) => {
+    setExpandedStudents(prev => {
+      const isOpening = !prev[classId];
+      if (isOpening) fetchClasses();
+      return { ...prev, [classId]: isOpening };
+    });
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -59,21 +60,6 @@ export default function AdminClassesPage() {
     }
   };
 
-  const handleAssign = async (classId: string, type: 'teachers' | 'students') => {
-    const data = assignData[classId] || {};
-    const userId = type === 'teachers' ? data.teacher_id : data.student_id;
-    if (!userId) return;
-    try {
-      const key = type === 'teachers' ? 'teacher_id' : 'student_id';
-      const url = `/api/classes/${classId}/${type}?${key}=${userId}`;
-      await api.post<any>(url, {});
-      alert('Success');
-      fetchClasses();
-    } catch (err: any) {
-      alert(err.message || 'Failed');
-    }
-  };
-
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
@@ -83,36 +69,69 @@ export default function AdminClassesPage() {
 
       {loading ? <div>Loading...</div> : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {classes.map(c => (
-            <div key={c.id} className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
-              <h3 className="text-lg font-bold text-gray-900">{c.name}</h3>
-              <p className="text-sm text-gray-500 mb-4">Grade Level: {c.grade_level}</p>
-              <div className="flex gap-4 text-sm text-gray-600 mb-4">
-                <div>Teachers: {c.teacher_count || 0}</div>
-                <div>Students: {c.student_count || 0}</div>
-              </div>
-              <div className="space-y-2 border-t pt-4">
-                <div className="flex gap-2">
-                  <select className="flex-1 text-sm border rounded-md px-2 py-1" 
-                    value={assignData[c.id]?.teacher_id || ''} 
-                    onChange={e => setAssignData({...assignData, [c.id]: {...(assignData[c.id] || {}), teacher_id: e.target.value}})}>
-                    <option value="">Select Teacher</option>
-                    {teachers.map(t => <option key={t.id} value={t.id}>{t.full_name}</option>)}
-                  </select>
-                  <button onClick={() => handleAssign(c.id, 'teachers')} className="text-sm bg-indigo-50 text-indigo-700 px-3 rounded-md hover:bg-indigo-100">Assign</button>
+          {classes.map(c => {
+            const teacherCount = c.teachers?.length ?? c.teacher_count ?? 0;
+            const studentCount = c.students?.length ?? c.student_count ?? 0;
+            
+            return (
+              <div key={c.id} className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+                <h3 className="text-lg font-bold text-gray-900">{c.name}</h3>
+                <p className="text-sm text-gray-500 mb-4">Grade Level: {c.grade_level}</p>
+                
+                {/* Expandable Teachers Accordion Box */}
+                <div className="mb-3 border border-gray-200 rounded-md overflow-hidden bg-gray-50">
+                  <button 
+                    type="button"
+                    onClick={() => toggleTeachers(c.id)} 
+                    className="w-full px-3 py-2 text-left flex justify-between items-center text-sm font-medium text-gray-700 hover:bg-gray-100"
+                  >
+                    <span>Teachers ({teacherCount})</span>
+                    <span className="text-xs text-gray-500">{expandedTeachers[c.id] ? '▲' : '▼'}</span>
+                  </button>
+                  {expandedTeachers[c.id] && (
+                    <div className="p-3 border-t border-gray-200 bg-white text-xs space-y-1.5 max-h-36 overflow-y-auto">
+                      {(!c.teachers || c.teachers.length === 0) ? (
+                        <p className="text-gray-400 italic">No teachers assigned</p>
+                      ) : (
+                        c.teachers.map((t: any) => (
+                          <div key={t.id} className="flex justify-between items-center text-gray-800 py-0.5">
+                            <span className="font-medium">• {t.full_name}</span>
+                            <span className="text-gray-400 text-[10px]">{t.email}</span>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  )}
                 </div>
-                <div className="flex gap-2">
-                  <select className="flex-1 text-sm border rounded-md px-2 py-1" 
-                    value={assignData[c.id]?.student_id || ''} 
-                    onChange={e => setAssignData({...assignData, [c.id]: {...(assignData[c.id] || {}), student_id: e.target.value}})}>
-                    <option value="">Select Student</option>
-                    {students.map(s => <option key={s.id} value={s.id}>{s.full_name}</option>)}
-                  </select>
-                  <button onClick={() => handleAssign(c.id, 'students')} className="text-sm bg-green-50 text-green-700 px-3 rounded-md hover:bg-green-100">Enroll</button>
+
+                {/* Expandable Students Accordion Box */}
+                <div className="mb-4 border border-gray-200 rounded-md overflow-hidden bg-gray-50">
+                  <button 
+                    type="button"
+                    onClick={() => toggleStudents(c.id)} 
+                    className="w-full px-3 py-2 text-left flex justify-between items-center text-sm font-medium text-gray-700 hover:bg-gray-100"
+                  >
+                    <span>Students ({studentCount})</span>
+                    <span className="text-xs text-gray-500">{expandedStudents[c.id] ? '▲' : '▼'}</span>
+                  </button>
+                  {expandedStudents[c.id] && (
+                    <div className="p-3 border-t border-gray-200 bg-white text-xs space-y-1.5 max-h-36 overflow-y-auto">
+                      {(!c.students || c.students.length === 0) ? (
+                        <p className="text-gray-400 italic">No students enrolled</p>
+                      ) : (
+                        c.students.map((s: any) => (
+                          <div key={s.id} className="flex justify-between items-center text-gray-800 py-0.5">
+                            <span className="font-medium">• {s.full_name}</span>
+                            <span className="text-gray-400 text-[10px]">{s.email}</span>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
           {classes.length === 0 && <p className="text-gray-500">No classes found.</p>}
         </div>
       )}

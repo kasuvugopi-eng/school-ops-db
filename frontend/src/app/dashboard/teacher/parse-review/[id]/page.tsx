@@ -18,23 +18,22 @@ export default function ParseReviewPage() {
   const [selectedClassIds, setSelectedClassIds] = useState<string[]>([]);
   const [selectedStudentIds, setSelectedStudentIds] = useState<Set<string>>(new Set());
 
-  const fetchParseResult = async (loadedClasses: any[]) => {
+  const fetchParseResult = async (loadedClasses?: any[]) => {
     try {
       const res = await api.get<any>(`/api/documents/${id}/parse-result`);
       const parseData = res?.data ?? res;
       setData(parseData);
       setFormData(parseData?.parsed_data ?? {});
       
+      const targetClasses = (loadedClasses && loadedClasses.length > 0) ? loadedClasses : classes;
       let initialClassIds: string[] = [];
       const llmClassId = parseData?.parsed_data?.target_class_id;
       if (llmClassId) {
-        // Check if it's already a valid UUID
         const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(llmClassId);
         if (isUUID) {
           initialClassIds = [llmClassId];
         } else {
-          // Try to match the string to a loaded class
-          const matchedClass = loadedClasses.find(c => 
+          const matchedClass = targetClasses.find((c: any) => 
             c.name.toLowerCase().includes(llmClassId.toLowerCase()) || 
             llmClassId.toLowerCase().includes(c.name.toLowerCase()) ||
             (c.grade_level && llmClassId.includes(c.grade_level))
@@ -44,8 +43,13 @@ export default function ParseReviewPage() {
           }
         }
       }
-      setSelectedClassIds(parseData?.parsed_data?.class_ids || initialClassIds);
-      setSelectedStudentIds(new Set(parseData?.parsed_data?.student_ids || []));
+      const finalClassIds = parseData?.parsed_data?.class_ids || initialClassIds;
+      setSelectedClassIds(finalClassIds);
+
+      const parsedStudentIds = parseData?.parsed_data?.target_student_ids || parseData?.parsed_data?.student_ids || [];
+      if (parsedStudentIds.length > 0) {
+        setSelectedStudentIds(new Set(parsedStudentIds));
+      }
       setErrorMsg(null);
     } catch (err: any) {
       console.error(err);
@@ -78,11 +82,14 @@ export default function ParseReviewPage() {
            setStudents(fetchedStudents);
            const validIds = new Set(fetchedStudents.map((s: any) => s.id));
            setSelectedStudentIds(prev => {
+             if (prev.size === 0) {
+               return new Set(fetchedStudents.map((s: any) => s.id));
+             }
              const next = new Set<string>();
              prev.forEach(studentId => {
                if (validIds.has(studentId)) next.add(studentId);
              });
-             return next;
+             return next.size > 0 ? next : new Set(fetchedStudents.map((s: any) => s.id));
            });
          })
          .catch(console.error);
@@ -125,7 +132,7 @@ export default function ParseReviewPage() {
         target_type: target_type,
         instructions: formData.instructions || null
       });
-      await fetchParseResult();
+      await fetchParseResult(classes);
     } catch (err: any) {
       console.error(err);
       setErrorMsg(err.response?.data?.detail || err.message || 'Failed to clarify');

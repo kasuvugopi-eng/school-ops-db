@@ -59,6 +59,18 @@ async def process_reminders_for_assignment(db: AsyncSession, assignment_id: uuid
             continue
         
         if sub.state == SubmissionState.BLOCKED:
+            # Check if escalation reminder already sent
+            existing_esc = await db.execute(
+                select(Reminder).where(
+                    Reminder.assignment_id == assignment_id,
+                    Reminder.target_student_id == sub.student_id,
+                    Reminder.reminder_type == ReminderType.ESCALATION,
+                    Reminder.escalation_level == 1
+                )
+            )
+            if existing_esc.scalar_one_or_none():
+                continue
+
             # Escalate to teacher
             reminder = Reminder(
                 assignment_id=assignment_id,
@@ -79,13 +91,28 @@ async def process_reminders_for_assignment(db: AsyncSession, assignment_id: uuid
         
         # NOT_STARTED or IN_PROGRESS - send reminder
         is_overdue = assignment.due_date and assignment.due_date < datetime.now(timezone.utc)
+        r_type = ReminderType.OVERDUE if is_overdue else ReminderType.UPCOMING
+        
+        # Check if reminder already sent for this type & level
+        existing_rem = await db.execute(
+            select(Reminder).where(
+                Reminder.assignment_id == assignment_id,
+                Reminder.target_student_id == sub.student_id,
+                Reminder.reminder_type == r_type,
+                Reminder.escalation_level == 0
+            )
+        )
+        if existing_rem.scalar_one_or_none():
+            continue
+
         reminder = Reminder(
             assignment_id=assignment_id,
             target_student_id=sub.student_id,
-            reminder_type=ReminderType.OVERDUE if is_overdue else ReminderType.UPCOMING,
+            reminder_type=r_type,
             scheduled_for=datetime.now(timezone.utc),
             sent_at=datetime.now(timezone.utc),
             state=ReminderState.SENT,
+            escalation_level=0,
             message_text=f"{'OVERDUE: ' if is_overdue else ''}Reminder for assignment: {assignment.title}"
         )
         db.add(reminder)
@@ -96,14 +123,42 @@ async def process_reminders_for_assignment(db: AsyncSession, assignment_id: uuid
     
     return summary
 
+async def process_queued_reminders(db: AsyncSession) -> int:
+    now_hour = datetime.now().hour
+    if now_hour >= 22 or now_hour < 7:
+        return 0
+    
+    result = await db.execute(
+        select(Reminder).where(
+            Reminder.state == ReminderState.SCHEDULED,
+            Reminder.scheduled_for <= datetime.now(timezone.utc)
+        )
+    )
+    scheduled_reminders = result.scalars().all()
+    from app.telegram.bot import send_telegram_message
+    from app.models.user import User
+    
+    count = 0
+    for rem in scheduled_reminders:
+        user_res = await db.execute(select(User).where(User.id == rem.target_student_id))
+        user = user_res.scalar_one_or_none()
+        if user and user.telegram_chat_id:
+            await send_telegram_message(user.telegram_chat_id, rem.message_text or "Notification")
+        rem.state = ReminderState.SENT
+        rem.sent_at = datetime.now(timezone.utc)
+        count += 1
+    await db.commit()
+    return count
+
 async def process_all_active_reminders(db: AsyncSession) -> dict:
-    """Process reminders for all active assignments."""
+    """Process reminders for all active assignments and flush queued quiet hours notifications."""
+    queued_sent = await process_queued_reminders(db)
     result = await db.execute(
         select(Assignment).where(Assignment.state == AssignmentState.ACTIVE)
     )
     assignments = result.scalars().all()
     
-    results = {}
+    results = {"queued_sent": queued_sent}
     for assignment in assignments:
         results[str(assignment.id)] = await process_reminders_for_assignment(db, assignment.id)
     

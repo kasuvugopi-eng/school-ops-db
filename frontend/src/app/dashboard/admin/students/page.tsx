@@ -14,6 +14,8 @@ export default function AdminStudentsPage() {
   const [inviteRole, setInviteRole] = useState('STUDENT');
   const [inviteLink, setInviteLink] = useState('');
   const [targetClassId, setTargetClassId] = useState('');
+  const [targetStudentId, setTargetStudentId] = useState('');
+  const [relationship, setRelationship] = useState('mother');
   const [selectedGrade, setSelectedGrade] = useState('');
   const [inviteName, setInviteName] = useState('');
   const [copied, setCopied] = useState(false);
@@ -162,7 +164,7 @@ export default function AdminStudentsPage() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Filter by Grade</label>
+                  <label className="block text-sm font-medium text-gray-700">Grade</label>
                   <select 
                     value={selectedGrade} 
                     onChange={e => {
@@ -171,21 +173,48 @@ export default function AdminStudentsPage() {
                     }} 
                     className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
                   >
-                    <option value="">All Grades</option>
-                    {availableGrades.map((g, idx) => (
-                      <option key={idx} value={g}>Grade {g}</option>
-                    ))}
+                    <option value="">Select a Grade...</option>
+                    {availableGrades.map((g, idx) => {
+                      const label = g.toLowerCase().startsWith('grade') ? g : `Grade ${g}`;
+                      return <option key={idx} value={g}>{label}</option>;
+                    })}
                   </select>
                 </div>
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700">Class</label>
-                  <select required value={targetClassId} onChange={e => setTargetClassId(e.target.value)} className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm">
+                  <select 
+                    required 
+                    value={targetClassId} 
+                    onChange={e => {
+                      const cid = e.target.value;
+                      setTargetClassId(cid);
+                      const cls = classes.find(c => c.id === cid);
+                      if (cls?.grade_level) setSelectedGrade(cls.grade_level);
+                    }} 
+                    className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                  >
                     <option value="">Select a class...</option>
                     {filteredClasses.map(c => (
-                      <option key={c.id} value={c.id}>{c.name} {c.grade_level ? `(Grade ${c.grade_level})` : ''}</option>
+                      <option key={c.id} value={c.id}>{c.name}</option>
                     ))}
                   </select>
+                </div>
+
+                {/* Selected Summary Card */}
+                <div className="bg-indigo-50 border border-indigo-100 p-3 rounded-md text-sm space-y-1 text-indigo-900 mt-3">
+                  <p className="font-semibold text-xs text-indigo-700 uppercase tracking-wider">Selection Summary</p>
+                  <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs sm:text-sm">
+                    <div><span className="font-medium text-gray-600">Student:</span> {inviteName || 'Not specified'}</div>
+                    <div>
+                      <span className="font-medium text-gray-600">Grade:</span> {
+                        selectedGrade 
+                          ? (selectedGrade.toLowerCase().startsWith('grade') ? selectedGrade : `Grade ${selectedGrade}`) 
+                          : 'None'
+                      }
+                    </div>
+                    <div><span className="font-medium text-gray-600">Class:</span> {targetClassId ? (classes.find(c => c.id === targetClassId)?.name || 'Selected') : 'None'}</div>
+                  </div>
                 </div>
               </>
             )}
