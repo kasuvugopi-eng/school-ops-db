@@ -83,6 +83,7 @@ async def handle_file_submission(update: Update, context: ContextTypes.DEFAULT_T
                 Submission.state.in_([
                     SubmissionState.NOT_STARTED,
                     SubmissionState.IN_PROGRESS,
+                    SubmissionState.BLOCKED,
                     SubmissionState.REVISION_REQUESTED
                 ])
             )

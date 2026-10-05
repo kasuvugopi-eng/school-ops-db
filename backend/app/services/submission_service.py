@@ -8,7 +8,7 @@ from app.models.enums import SubmissionState
 SUBMISSION_TRANSITIONS = {
     SubmissionState.NOT_STARTED: {SubmissionState.IN_PROGRESS, SubmissionState.SUBMITTED},
     SubmissionState.IN_PROGRESS: {SubmissionState.BLOCKED, SubmissionState.SUBMITTED},
-    SubmissionState.BLOCKED: {SubmissionState.IN_PROGRESS},
+    SubmissionState.BLOCKED: {SubmissionState.IN_PROGRESS, SubmissionState.SUBMITTED, SubmissionState.RESUBMITTED},
     SubmissionState.SUBMITTED: {SubmissionState.REVISION_REQUESTED, SubmissionState.COMPLETED},
     SubmissionState.REVISION_REQUESTED: {SubmissionState.RESUBMITTED},
     SubmissionState.RESUBMITTED: {SubmissionState.COMPLETED, SubmissionState.REVISION_REQUESTED}

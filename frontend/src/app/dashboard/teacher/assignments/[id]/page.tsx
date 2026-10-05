@@ -108,6 +108,13 @@ export default function AssignmentDetailPage() {
                 </div>
               </div>
               
+              {sub.state === 'BLOCKED' && (
+                <div className="bg-red-50 p-4 rounded-md text-red-800 text-sm mb-4 border border-red-200">
+                  <div className="font-bold mb-1">🚨 Student Needs Help (Stuck):</div>
+                  <div>{sub.blocked_reason || 'No specific doubt mentioned.'}</div>
+                </div>
+              )}
+
               {(sub.content_text || sub.content) && (
                 <div className="bg-gray-50 p-4 rounded-md text-gray-800 text-sm mb-4 border border-gray-200">
                   {sub.content_text || sub.content}

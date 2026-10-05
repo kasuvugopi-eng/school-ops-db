@@ -72,6 +72,31 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await process_teacher_assignment_flow(update, context, user, raw_text=message_text)
             return
 
+        # Handle Student Telegram Messages
+        reply_msg = update.message.reply_to_message
+        clean_text = (message_text or "").strip()
+
+        # If Student replies directly to Teacher feedback message or is BLOCKED
+        if reply_msg and reply_msg.text:
+            row = await get_active_submission(db, user.id)
+            if row:
+                sub, assign = row
+                # Route message as response to teacher / submission progress
+                if assign.created_by:
+                    teacher_res = await db.execute(select(User).where(User.id == assign.created_by))
+                    teacher = teacher_res.scalar_one_or_none()
+                    if teacher and teacher.telegram_chat_id:
+                        from app.telegram.bot import send_telegram_message
+                        student_reply_msg = (
+                            f"💬 *Student Reply from {user.full_name}*\n"
+                            f"*Assignment:* {assign.title}\n\n"
+                            f"\"{clean_text}\""
+                        )
+                        await send_telegram_message(teacher.telegram_chat_id, student_reply_msg)
+                
+                await update.message.reply_text(f"✅ Your message has been sent to your teacher for *{assign.title}*!", parse_mode="Markdown")
+                return
+
         if intent.intent == "progress_update":
             row = await get_active_submission(db, user.id)
             if row:
@@ -115,11 +140,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             else:
                 await update.message.reply_text("No active assignments found.")
         
-        elif intent.intent == "submission":
+        elif intent.intent == "submission" or intent.intent == "unknown":
             row = await get_active_submission(db, user.id)
             if row:
                 sub, assign = row
-                new_state = SubmissionState.SUBMITTED
+                new_state = SubmissionState.RESUBMITTED if sub.state in (SubmissionState.BLOCKED, SubmissionState.REVISION_REQUESTED) else SubmissionState.SUBMITTED
                 sub = await update_submission_state(
                     db, sub.id, new_state,
                     content_text=message_text
@@ -155,23 +180,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             else:
                 await update.message.reply_text("This action is only available for parents/guardians.")
         
-        elif intent.intent in ("unsafe", "out_of_scope"):
-            await db.commit()
-            if intent.intent == "unsafe":
-                await update.message.reply_text("⚠️ I can't process that request. Please keep messages related to school work.")
-            else:
-                await update.message.reply_text(
-                    "🤔 I'm not sure how to help with that. I can help with:\n"
-                    "- Assignment progress updates\n"
-                    "- Reporting that you're stuck\n"
-                    "- Submitting work\n"
-                    "- Checking your status (/status)"
-                )
-        
-        else:  # unknown or other intents
+        else:
             await db.commit()
             await update.message.reply_text(
-                f"I understood your message as: *{intent.intent.replace('_', ' ').title()}*\n"
-                f"For this action, please use the web dashboard at the school portal.",
+                "💬 Message received! Use Telegram to submit work (send photos/answers) or report progress.",
                 parse_mode="Markdown"
             )
