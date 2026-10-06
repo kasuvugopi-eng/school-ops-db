@@ -205,8 +205,8 @@ async def bulk_import_users_csv(
         if not email or not full_name:
             continue
 
-        # Check existing user
-        existing_res = await db.execute(select(User).where(User.email == email))
+        # Check existing user in current school
+        existing_res = await db.execute(select(User).where(User.email == email, User.school_id == current_user.school_id))
         if existing_res.scalar_one_or_none():
             skipped_emails.append(email)
             continue

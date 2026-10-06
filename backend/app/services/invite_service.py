@@ -85,9 +85,9 @@ async def accept_invite(
 ) -> User:
     invite = await validate_invite_token(db, token_str)
     
-    existing_user = await db.execute(select(User).where(User.email == email))
+    existing_user = await db.execute(select(User).where(User.email == email, User.school_id == invite.school_id))
     if existing_user.scalar_one_or_none():
-        raise HTTPException(status_code=400, detail="Email already registered")
+        raise HTTPException(status_code=400, detail="Email already registered in this school")
         
     user = User(
         email=email,
@@ -150,4 +150,6 @@ async def accept_invite(
             from app.services.audit_service import log_event
             await log_event(db, "guardian.linked", school_id=user.school_id, actor_id=user.id, resource_type="guardian_link", resource_id=link.id)
     
+    await db.commit()
+    await db.refresh(user)
     return user

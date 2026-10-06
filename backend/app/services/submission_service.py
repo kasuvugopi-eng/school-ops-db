@@ -90,22 +90,13 @@ async def notify_submission_created_or_updated(db: AsyncSession, submission: Sub
         )
         await send_telegram_message(student.telegram_chat_id, student_delivery_msg)
 
-    # 2. Notification Alert to Teacher with 1-Click Inline Review Buttons
+    # 2. Notification Alert to Teacher (Web-only approval instruction)
     teacher_res = await db.execute(select(User).where(User.id == assignment.created_by))
     teacher = teacher_res.scalar_one_or_none()
     if teacher and teacher.telegram_chat_id:
-        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-        
         parsed_preview = submission.content_text or "Submitted via Telegram attachment"
         if len(parsed_preview) > 300:
             parsed_preview = parsed_preview[:300] + "..."
-
-        keyboard = InlineKeyboardMarkup([
-            [
-                InlineKeyboardButton("✅ Approve", callback_data=f"approve_{submission.id}"),
-                InlineKeyboardButton("🔄 Request Revision", callback_data=f"revise_{submission.id}")
-            ]
-        ])
 
         teacher_alert_msg = (
             "📩 *New Assignment Submission Received!*\n\n"
@@ -115,9 +106,9 @@ async def notify_submission_created_or_updated(db: AsyncSession, submission: Sub
             f"*submitted date:* {submitted_date_str}\n\n"
             f"📄 *Extracted / Submitted Content Preview:*\n"
             f"_{parsed_preview}_\n\n"
-            f"💡 *Click below for 1-Click Action or review on Web Portal:*"
+            f"🌐 *Action Required:* Please log in to your Teacher Web Portal to review and approve this submission."
         )
-        await send_telegram_message(teacher.telegram_chat_id, teacher_alert_msg, reply_markup=keyboard)
+        await send_telegram_message(teacher.telegram_chat_id, teacher_alert_msg)
 
 async def get_submission(db: AsyncSession, submission_id: uuid.UUID):
     result = await db.execute(select(Submission).where(Submission.id == submission_id))

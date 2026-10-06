@@ -13,9 +13,7 @@ async def register_school(db: AsyncSession, data: RegisterSchoolRequest) -> tupl
     if existing_school.scalar_one_or_none():
         raise HTTPException(status_code=400, detail="School code already exists")
         
-    existing_user = await db.execute(select(User).where(User.email == data.admin_email))
-    if existing_user.scalar_one_or_none():
-        raise HTTPException(status_code=400, detail="Email already registered")
+    # Allow same admin email for different schools if needed
 
     school = School(name=data.school_name, code=data.school_code)
     db.add(school)
@@ -35,11 +33,23 @@ async def register_school(db: AsyncSession, data: RegisterSchoolRequest) -> tupl
     access_token = create_access_token({"sub": str(admin_user.id), "role": admin_user.role, "school_id": str(school.id)})
     return school, admin_user, access_token
 
-async def login(db: AsyncSession, email: str, password: str) -> tuple[User, str, str]:
-    result = await db.execute(select(User).where(User.email == email))
-    user = result.scalar_one_or_none()
+async def login(db: AsyncSession, email: str, password: str, school_code: str = None) -> tuple[User, str, str]:
+    query = select(User)
+    if school_code:
+        query = query.join(School, User.school_id == School.id).where(School.code == school_code, User.email == email)
+    else:
+        query = query.where(User.email == email)
+        
+    result = await db.execute(query)
+    users = result.scalars().all()
     
-    if not user or not verify_password(password, user.password_hash):
+    user = None
+    for u in users:
+        if verify_password(password, u.password_hash):
+            user = u
+            break
+            
+    if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
         
     if not user.is_active:

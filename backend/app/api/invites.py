@@ -29,7 +29,11 @@ async def create_invite(data: CreateInviteRequest, current_user: User = Depends(
 @router.get("/{token}/validate")
 async def validate_invite(token: str, db: AsyncSession = Depends(get_db)):
     invite = await validate_invite_token(db, token)
-    return {"valid": True, "role": invite.role, "school_id": invite.school_id}
+    from app.models.school import School
+    from sqlalchemy import select
+    s_res = await db.execute(select(School).where(School.id == invite.school_id))
+    school = s_res.scalar_one_or_none()
+    return {"valid": True, "role": invite.role, "school_id": invite.school_id, "school_name": school.name if school else "School"}
 
 @router.post("/{token}/accept", response_model=UserResponse)
 async def accept_invite_endpoint(token: str, data: AcceptInviteRequest, db: AsyncSession = Depends(get_db)):

@@ -1,4 +1,4 @@
-# Trigger reload v48 - Enforced Quiet Hours on Announcement Telegram Broadcasts
+# Trigger reload v54 - Dropped legacy unique index ix_users_email in PostgreSQL
 import os
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, status

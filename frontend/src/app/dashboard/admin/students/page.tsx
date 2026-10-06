@@ -22,6 +22,7 @@ export default function AdminStudentsPage() {
   const [relationship, setRelationship] = useState('mother');
   const [selectedGrade, setSelectedGrade] = useState('');
   const [inviteName, setInviteName] = useState('');
+  const [copied, setCopied] = useState(false);
   // Assign Class to Student state
   const [assignModalOpen, setAssignModalOpen] = useState(false);
   const [assignStudent, setAssignStudent] = useState<any>(null);

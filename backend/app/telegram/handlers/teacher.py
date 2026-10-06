@@ -327,93 +327,12 @@ async def handle_cancel_assignment(update: Update, context: ContextTypes.DEFAULT
             await update.message.reply_text(f"⚠️ Failed to cancel assignment: {e}")
 
 async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle 1-click Inline button clicks from Telegram (Approve / Request Revision)."""
+    """Inform teacher that approvals must be completed on the Web Portal."""
     query = update.callback_query
     await query.answer()
-
-    data = query.data or ""
-    if not (data.startswith("approve_") or data.startswith("revise_")):
-        return
-
-    action, sub_id_str = data.split("_", 1)
-    try:
-        sub_id = uuid.UUID(sub_id_str)
-    except ValueError:
-        return
-
-    chat_id = str(update.effective_chat.id)
-    from app.telegram.handlers.fallback import resolve_user
-    from app.models.submission import Submission
-    from app.models.feedback import Feedback as FeedbackModel
-    from app.models.enums import FeedbackAction, SubmissionState, UserRole
-    from app.telegram.bot import send_telegram_message
-
-    async with async_sessionmaker_instance() as db:
-        user = await resolve_user(chat_id, db)
-        if not user or user.role != UserRole.TEACHER:
-            await query.edit_message_text("⚠️ Permission denied.")
-            return
-
-        res = await db.execute(select(Submission).where(Submission.id == sub_id))
-        sub = res.scalar_one_or_none()
-        if not sub:
-            await query.edit_message_text("⚠️ Submission not found.")
-            return
-
-        assign_res = await db.execute(select(Assignment).where(Assignment.id == sub.assignment_id))
-        assignment = assign_res.scalar_one_or_none()
-
-        student_res = await db.execute(select(User).where(User.id == sub.student_id))
-        student = student_res.scalar_one_or_none()
-
-        if action == "approve":
-            sub.state = SubmissionState.COMPLETED
-            fb_action = FeedbackAction.APPROVAL
-            feedback_text = "Approved via Telegram Quick Action."
-            response_msg = f"✅ *Assignment Approved!* ({student.full_name if student else 'Student'})"
-            student_notify = f"🎉 *Assignment Approved!*\nYour work for *{assignment.title if assignment else 'Assignment'}* has been approved!"
-        else:
-            sub.state = SubmissionState.REVISION_REQUESTED
-            fb_action = FeedbackAction.REVISION_REQUEST
-            feedback_text = "Revision Requested via Telegram Quick Action."
-            response_msg = f"🔄 *Revision Requested!* ({student.full_name if student else 'Student'})"
-            student_notify = f"🔄 *Revision Requested*\nYour teacher requested a revision for *{assignment.title if assignment else 'Assignment'}*. Please review and resubmit."
-
-        fb = FeedbackModel(
-            submission_id=sub.id, teacher_id=user.id,
-            content=feedback_text, action=fb_action
-        )
-        db.add(fb)
-        await db.commit()
-
-        if student and student.telegram_chat_id:
-            from app.models.grade_class import GradeClass
-            class_name = "All Classes"
-            grade = "General"
-            if assignment and assignment.target_class_id:
-                cls_res = await db.execute(select(GradeClass).where(GradeClass.id == assignment.target_class_id))
-                target_cls = cls_res.scalar_one_or_none()
-                if target_cls:
-                    class_name = target_cls.name
-                    grade = target_cls.grade_level or "General"
-
-            if action == "approve":
-                formatted_student_msg = (
-                    "🎉 *Assignment Approved!*\n\n"
-                    f"*Assignment name:* {assignment.title if assignment else 'Assignment'}\n"
-                    f"*class-grade:* {class_name} ({grade})\n"
-                    f"*status:* Completed (Approved)\n"
-                    f"*teacher feedback:* Great job!"
-                )
-            else:
-                formatted_student_msg = (
-                    "🔄 *Revision Requested for Assignment*\n\n"
-                    f"*Assignment name:* {assignment.title if assignment else 'Assignment'}\n"
-                    f"*class-grade:* {class_name} ({grade})\n"
-                    f"*status:* Revision Requested\n"
-                    f"*teacher feedback:* Please review and resubmit."
-                )
-
-            await send_telegram_message(student.telegram_chat_id, formatted_student_msg)
-
-        await query.edit_message_text(f"{response_msg}\n\n📨 *Delivery Update:* Notification successfully delivered to Student ({student.full_name if student else 'Student'}) via Telegram!")
+    await query.edit_message_text(
+        "🌐 *Approval Notice*\n\n"
+        "Direct approval via Telegram has been disabled.\n"
+        "Please log in to your **Teacher Web Dashboard** to review and approve/request revision for student assignments.",
+        parse_mode="Markdown"
+    )
