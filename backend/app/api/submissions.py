@@ -160,12 +160,13 @@ async def update_submission(
             teacher = teacher_res.scalar_one_or_none()
             if teacher and teacher.telegram_chat_id:
                 from app.telegram.bot import send_telegram_message
+                from app.telegram.routing import ref_tag
                 stuck_msg = (
                     "🚨 *Student Stuck Alert!*\n\n"
                     f"*Student:* {current_user.full_name}\n"
                     f"*Assignment:* {assignment.title}\n"
-                    f"*Doubt/Reason:* {sub.blocked_reason or 'No reason provided.'}\n\n"
-                    "💡 *Please review on Teacher Dashboard or reply to student.*"
+                    f"*Doubt/Reason:* {sub.blocked_reason or 'No reason provided.'}"
+                    + ref_tag(current_user.id)
                 )
                 await send_telegram_message(teacher.telegram_chat_id, stuck_msg)
     else:

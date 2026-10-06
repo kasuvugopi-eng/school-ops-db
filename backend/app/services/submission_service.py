@@ -6,11 +6,11 @@ from app.models.submission import Submission
 from app.models.enums import SubmissionState
 
 SUBMISSION_TRANSITIONS = {
-    SubmissionState.NOT_STARTED: {SubmissionState.IN_PROGRESS, SubmissionState.SUBMITTED},
+    SubmissionState.NOT_STARTED: {SubmissionState.IN_PROGRESS, SubmissionState.BLOCKED, SubmissionState.SUBMITTED},
     SubmissionState.IN_PROGRESS: {SubmissionState.BLOCKED, SubmissionState.SUBMITTED},
     SubmissionState.BLOCKED: {SubmissionState.IN_PROGRESS, SubmissionState.SUBMITTED, SubmissionState.RESUBMITTED},
     SubmissionState.SUBMITTED: {SubmissionState.REVISION_REQUESTED, SubmissionState.COMPLETED},
-    SubmissionState.REVISION_REQUESTED: {SubmissionState.RESUBMITTED},
+    SubmissionState.REVISION_REQUESTED: {SubmissionState.BLOCKED, SubmissionState.RESUBMITTED},
     SubmissionState.RESUBMITTED: {SubmissionState.COMPLETED, SubmissionState.REVISION_REQUESTED}
 }
 
@@ -108,7 +108,29 @@ async def notify_submission_created_or_updated(db: AsyncSession, submission: Sub
             f"_{parsed_preview}_\n\n"
             f"🌐 *Action Required:* Please log in to your Teacher Web Portal to review and approve this submission."
         )
+        from app.telegram.routing import ref_tag
+        teacher_alert_msg += ref_tag(student.id)
         await send_telegram_message(teacher.telegram_chat_id, teacher_alert_msg)
+
+    # 3. Notification to Parent/Guardian
+    from app.models.guardian_link import GuardianLink
+    guardians_res = await db.execute(
+        select(User).join(GuardianLink, GuardianLink.guardian_id == User.id).where(
+            GuardianLink.student_id == student.id,
+            User.telegram_chat_id.isnot(None)
+        )
+    )
+    guardians = guardians_res.scalars().all()
+    for guardian in guardians:
+        parent_msg = (
+            "👨‍👩‍👦 *Child Homework Submission Notice*\n\n"
+            f"Your child *{student.full_name}* has submitted their homework!\n\n"
+            f"*Assignment:* {assignment.title}\n"
+            f"*Subject:* {assignment.subject or 'General'}\n"
+            f"*Submitted Date:* {submitted_date_str}\n"
+            f"*Status:* Submitted (Awaiting Teacher Review)"
+        )
+        await send_telegram_message(guardian.telegram_chat_id, parent_msg)
 
 async def get_submission(db: AsyncSession, submission_id: uuid.UUID):
     result = await db.execute(select(Submission).where(Submission.id == submission_id))

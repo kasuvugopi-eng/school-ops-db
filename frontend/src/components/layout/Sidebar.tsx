@@ -31,10 +31,12 @@ export default function Sidebar({ isOpen, onClose }: { isOpen: boolean, onClose:
     ],
     STUDENT: [
       { href: '/dashboard/student', label: 'My Assignments', icon: '🎒' },
+      { href: '/dashboard/student/documents', label: 'Documents & Policies', icon: '📄' },
       { href: '/dashboard/profile', label: 'My Profile', icon: '👤' },
     ],
     GUARDIAN: [
       { href: '/dashboard/parent', label: 'Child Progress', icon: '📈' },
+      { href: '/dashboard/parent/documents', label: 'Documents & Policies', icon: '📄' },
       { href: '/dashboard/profile', label: 'My Profile', icon: '👤' },
     ],
   }[user.role as 'ADMIN' | 'TEACHER' | 'STUDENT' | 'GUARDIAN'] || [];

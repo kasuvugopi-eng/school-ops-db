@@ -138,6 +138,28 @@ async def notify_students_for_assignment(db: AsyncSession, assignment: Assignmen
     for student in notifiable_students:
         await send_telegram_message(student.telegram_chat_id, student_msg)
 
+        # Also notify linked Parents (Guardians)
+        from app.models.guardian_link import GuardianLink
+        g_res = await db.execute(
+            select(User).join(GuardianLink, GuardianLink.guardian_id == User.id).where(
+                GuardianLink.student_id == student.id,
+                User.telegram_chat_id.isnot(None)
+            )
+        )
+        guardians = g_res.scalars().all()
+        for g in guardians:
+            parent_asgn_msg = (
+                "📢 *Child New Homework / Project Assignment*\n\n"
+                f"A new assignment has been issued for your child *{student.full_name}*!\n\n"
+                f"*Assignment:* {assignment.title}\n"
+                f"*Class:* {class_name} ({grade})\n"
+                f"*Subject:* {assignment.subject or 'General'}\n"
+                f"*Due Date:* {format_datetime_ist(assignment.due_date)}\n"
+                f"*Teacher:* {teacher_name}\n\n"
+                f"📝 *Instructions:* {assignment.instructions or 'See portal for details.'}"
+            )
+            await send_telegram_message(g.telegram_chat_id, parent_asgn_msg)
+
     # Teacher Delivery Confirmation
     teacher_user_res = await db.execute(select(User).where(User.id == assignment.created_by))
     teacher_user = teacher_user_res.scalar_one_or_none()

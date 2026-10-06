@@ -138,43 +138,55 @@ async def process_teacher_assignment_flow(update: Update, context: ContextTypes.
         
         # Scenario A: Teacher used Telegram "Reply" feature on a Stuck Alert or Submission Alert
         if reply_msg and reply_msg.text:
-            orig_text = reply_msg.text
-            # Try to identify student submission context from original notification text
+            from app.telegram.routing import extract_ref
+            target_id = extract_ref(reply_msg.text)
+            if not target_id:
+                await update.message.reply_text(
+                    "⚠️ I couldn't identify who this reply is for. Please use *Reply* on a student/parent message that contains a 🔖 Ref tag.",
+                    parse_mode="Markdown"
+                )
+                return
+
             async with async_sessionmaker_instance() as db:
-                # Find blocked or submitted student in teacher's school/assignments
                 from app.models.submission import Submission
                 from app.models.assignment import Assignment
                 from app.models.feedback import Feedback as FeedbackModel
-                from app.models.enums import FeedbackAction, SubmissionState
+                from app.models.enums import FeedbackAction
                 from app.telegram.bot import send_telegram_message
 
-                # Find blocked or recent active submissions for this teacher's active assignments
-                blocked_sub_res = await db.execute(
-                    select(Submission, User)
-                    .join(Assignment, Submission.assignment_id == Assignment.id)
-                    .join(User, Submission.student_id == User.id)
-                    .where(Assignment.created_by == user.id)
-                    .order_by(Submission.updated_at.desc())
+                target_res = await db.execute(
+                    select(User).where(User.id == target_id, User.school_id == user.school_id)
                 )
-                row = blocked_sub_res.first()
-                if row:
-                    sub, student = row
-                    # Save feedback
-                    fb = FeedbackModel(submission_id=sub.id, teacher_id=user.id, content=clean_text, action=FeedbackAction.COMMENT)
-                    db.add(fb)
-                    await db.commit()
-
-                    # Send to student Telegram directly!
-                    if student.telegram_chat_id:
-                        student_msg = (
-                            f"💬 *Teacher Feedback / Help:* \n\n"
-                            f"Teacher *{user.full_name}* replied:\n"
-                            f"\"{clean_text}\""
-                        )
-                        await send_telegram_message(student.telegram_chat_id, student_msg)
-
-                    await update.message.reply_text(f"✅ Your message has been delivered directly to student *{student.full_name}* via Telegram!")
+                target = target_res.scalar_one_or_none()
+                if not target:
+                    await update.message.reply_text("⚠️ The original sender was not found in your school.")
                     return
+
+                # For students: store the reply as feedback on their latest submission for this teacher
+                if target.role == UserRole.STUDENT:
+                    sub_res = await db.execute(
+                        select(Submission)
+                        .join(Assignment, Submission.assignment_id == Assignment.id)
+                        .where(Assignment.created_by == user.id, Submission.student_id == target.id)
+                        .order_by(Submission.updated_at.desc())
+                        .limit(1)
+                    )
+                    sub = sub_res.scalar_one_or_none()
+                    if sub:
+                        db.add(FeedbackModel(submission_id=sub.id, teacher_id=user.id, content=clean_text, action=FeedbackAction.COMMENT))
+                        await db.commit()
+
+                if not target.telegram_chat_id:
+                    await update.message.reply_text(f"⚠️ {target.full_name} has not linked Telegram yet.")
+                    return
+
+                label = "Parent" if target.role == UserRole.GUARDIAN else "Student"
+                await send_telegram_message(
+                    target.telegram_chat_id,
+                    f"💬 *Reply from Teacher {user.full_name}:*\n\n\"{clean_text}\""
+                )
+                await update.message.reply_text(f"✅ Reply delivered only to {label.lower()} *{target.full_name}*.", parse_mode="Markdown")
+                return
 
         # Scenario B: Check explicit triggers for new assignment
         assignment_triggers = ["create assignment", "new assignment", "assignment:", "homework:", "task:"]
