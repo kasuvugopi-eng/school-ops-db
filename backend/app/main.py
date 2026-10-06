@@ -1,4 +1,4 @@
-# Trigger reload v54 - Dropped legacy unique index ix_users_email in PostgreSQL
+# Trigger reload v56 - Enabled token query parameter on document download endpoint
 import os
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, status

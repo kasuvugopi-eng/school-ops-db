@@ -18,8 +18,13 @@ async def register(request: Request, data: RegisterSchoolRequest, db: AsyncSessi
     return {"access_token": access_token, "refresh_token": "not-implemented-on-register", "token_type": "bearer", "user": admin}
 
 @router.post("/login", response_model=TokenResponse)
-async def login_endpoint(request: Request, form_data: OAuth2PasswordRequestForm = Depends(), db: AsyncSession = Depends(get_db)):
-    user, access_token, refresh = await login(db, form_data.username, form_data.password)
+async def login_endpoint(
+    request: Request,
+    form_data: OAuth2PasswordRequestForm = Depends(),
+    school_name: str = None,
+    db: AsyncSession = Depends(get_db)
+):
+    user, access_token, refresh = await login(db, form_data.username, form_data.password, school_name=school_name)
     await log_event(db, "user.login", school_id=user.school_id, actor_id=user.id, resource_type="user", resource_id=user.id, ip_address=request.client.host)
     await db.commit()
     return {"access_token": access_token, "refresh_token": refresh, "token_type": "bearer", "user": user}

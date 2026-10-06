@@ -17,6 +17,7 @@ export default function AdminParseReviewPage() {
   const [students, setStudents] = useState<any[]>([]);
   const [selectedClassIds, setSelectedClassIds] = useState<string[]>([]);
   const [selectedStudentIds, setSelectedStudentIds] = useState<Set<string>>(new Set());
+  const [rosterRows, setRosterRows] = useState<any[] | null>(null);
 
   const fetchParseResult = async (loadedClasses?: any[]) => {
     try {
@@ -177,7 +178,44 @@ export default function AdminParseReviewPage() {
   const isRoster = Boolean(data.parsed_data?.rows && Array.isArray(data.parsed_data.rows));
 
   if (isRoster) {
-    const rows = data.parsed_data.rows || [];
+    const rawRows = data.parsed_data.rows || [];
+    const rows = rosterRows || rawRows;
+
+    const handleAutoCleanDuplicates = () => {
+      // Filter out duplicate candidates / rows with duplicate flags
+      const cleaned = rawRows.filter((r: any) => {
+        const flagsStr = (r.flags || []).join(' ').toLowerCase();
+        return !flagsStr.includes('duplicate');
+      });
+      setRosterRows(cleaned);
+      alert(`✨ Cleaned Roster! Removed ${rawRows.length - cleaned.length} duplicate entry/entries.`);
+    };
+
+    const handleDownloadCleanedCSV = () => {
+      const csvRows = [
+        ['full_name', 'grade_class', 'parent_name', 'parent_contact', 'notes']
+      ];
+
+      rows.forEach((r: any) => {
+        csvRows.push([
+          `"${(r.student_name || '').replace(/"/g, '""')}"`,
+          `"${(r.grade_class || '').replace(/"/g, '""')}"`,
+          `"${(r.parent_name || '').replace(/"/g, '""')}"`,
+          `"${(r.parent_contact || '').replace(/"/g, '""')}"`,
+          `"${(r.notes || '').replace(/"/g, '""')}"`
+        ]);
+      });
+
+      const csvContent = 'data:text/csv;charset=utf-8,' + csvRows.map(e => e.join(',')).join('\n');
+      const encodedUri = encodeURI(csvContent);
+      const link = document.createElement('a');
+      link.setAttribute('href', encodedUri);
+      link.setAttribute('download', `cleaned_roster_${id}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    };
+
     return (
       <div className="max-w-5xl mx-auto space-y-6">
         <div className="flex justify-between items-center">
@@ -185,8 +223,22 @@ export default function AdminParseReviewPage() {
             <h1 className="text-2xl font-bold text-gray-900">📋 Review Parsed Class Roster</h1>
             <p className="text-sm text-gray-600">Extracted {rows.length} student records from roster document.</p>
           </div>
-          <div className="bg-green-100 text-green-800 px-3 py-1 rounded-full text-sm font-medium">
-            Confidence: {confidence}%
+          <div className="flex items-center gap-3">
+            <button
+              onClick={handleAutoCleanDuplicates}
+              className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-md text-sm font-semibold shadow-sm flex items-center gap-1"
+            >
+              ✨ Remove Duplicates
+            </button>
+            <button
+              onClick={handleDownloadCleanedCSV}
+              className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-md text-sm font-semibold shadow-sm flex items-center gap-1"
+            >
+              📥 Download Cleaned CSV
+            </button>
+            <div className="bg-green-100 text-green-800 px-3 py-1.5 rounded-full text-sm font-medium">
+              Confidence: {confidence}%
+            </div>
           </div>
         </div>
 
@@ -240,7 +292,7 @@ export default function AdminParseReviewPage() {
                 disabled={submitting} 
                 className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 font-semibold disabled:opacity-50"
               >
-                {submitting ? 'Approving...' : '✅ Approve & Save Roster'}
+                {submitting ? 'Approving...' : '✅ Mark Reviewed & Approved'}
               </button>
             )}
           </div>

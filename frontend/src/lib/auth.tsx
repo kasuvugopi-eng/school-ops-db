@@ -8,7 +8,7 @@ interface AuthContextType {
   user: User | null;
   isLoading: boolean;
   isAuthenticated: boolean;
-  login: (email: string, password: string) => Promise<void>;
+  login: (email: string, password: string, schoolName?: string) => Promise<void>;
   register: (data: {
     school_name: string;
     school_code: string;
@@ -47,13 +47,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     loadUser();
   }, [loadUser]);
 
-  const login = async (email: string, password: string) => {
+  const login = async (email: string, password: string, schoolName?: string) => {
     // Use form data format for OAuth2PasswordRequestForm compatibility
     const formData = new URLSearchParams();
     formData.append('username', email);
     formData.append('password', password);
     
-    const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/auth/login`, {
+    let url = `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/auth/login`;
+    if (schoolName && schoolName.trim()) {
+      url += `?school_name=${encodeURIComponent(schoolName.trim())}`;
+    }
+    
+    const response = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: formData,

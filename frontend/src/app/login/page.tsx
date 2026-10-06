@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import { useState } from 'react';
 import { useAuth } from '@/lib/auth';
@@ -10,6 +10,7 @@ export default function LoginPage() {
   const { login } = useAuth();
   const router = useRouter();
   
+  const [schoolName, setSchoolName] = useState('');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -21,7 +22,7 @@ export default function LoginPage() {
     setError('');
     setLoading(true);
     try {
-      await login(username, password);
+      await login(username, password, schoolName);
       const token = localStorage.getItem('access_token');
       if (token) {
         const payload = JSON.parse(atob(token.split('.')[1]));
@@ -43,6 +44,18 @@ export default function LoginPage() {
         {error && <div className="mb-4 p-3 bg-red-100 text-red-700 rounded-md text-sm">{error}</div>}
         
         <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              School Name <span className="text-xs text-gray-400">(Optional for multi-school accounts)</span>
+            </label>
+            <input 
+              type="text" 
+              placeholder="e.g. ABC School"
+              value={schoolName} 
+              onChange={e => setSchoolName(e.target.value)} 
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm" 
+            />
+          </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
             <input type="email" required value={username} onChange={e => setUsername(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500" />

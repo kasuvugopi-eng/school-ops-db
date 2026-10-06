@@ -33,9 +33,14 @@ async def register_school(db: AsyncSession, data: RegisterSchoolRequest) -> tupl
     access_token = create_access_token({"sub": str(admin_user.id), "role": admin_user.role, "school_id": str(school.id)})
     return school, admin_user, access_token
 
-async def login(db: AsyncSession, email: str, password: str, school_code: str = None) -> tuple[User, str, str]:
+async def login(db: AsyncSession, email: str, password: str, school_code: str = None, school_name: str = None) -> tuple[User, str, str]:
+    from sqlalchemy import func
     query = select(User)
-    if school_code:
+    clean_school_name = (school_name or "").strip().lower()
+    
+    if clean_school_name:
+        query = query.join(School, User.school_id == School.id).where(func.lower(School.name) == clean_school_name, User.email == email)
+    elif school_code:
         query = query.join(School, User.school_id == School.id).where(School.code == school_code, User.email == email)
     else:
         query = query.where(User.email == email)
@@ -50,6 +55,8 @@ async def login(db: AsyncSession, email: str, password: str, school_code: str = 
             break
             
     if not user:
+        if clean_school_name:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials or school name mismatch.")
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
         
     if not user.is_active:
