@@ -11,16 +11,22 @@ export default function TeacherDocumentsPage() {
   const router = useRouter();
 
   const [documents, setDocuments] = useState<any[]>([]);
+  const [classes, setClasses] = useState<any[]>([]);
+  const [targetClassId, setTargetClassId] = useState('');
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [parsingId, setParsingId] = useState<string | null>(null);
   const [docType, setDocType] = useState('ASSIGNMENT_BRIEF');
   const [activeTab, setActiveTab] = useState<'MY_UPLOADS' | 'SCHOOL_POLICIES'>('MY_UPLOADS');
 
-  const fetchDocs = async () => {
+  const fetchDocsAndClasses = async () => {
     try {
-      const res = await api.get<any>('/api/documents');
-      setDocuments(Array.isArray(res) ? res : (res?.items ?? res?.data ?? []));
+      const [docRes, classRes] = await Promise.all([
+        api.get<any>('/api/documents'),
+        api.get<any>('/api/classes')
+      ]);
+      setDocuments(Array.isArray(docRes) ? docRes : (docRes?.items ?? docRes?.data ?? []));
+      setClasses(Array.isArray(classRes) ? classRes : (classRes?.items ?? classRes?.data ?? []));
     } catch (err) {
       console.error(err);
     } finally {
@@ -29,15 +35,18 @@ export default function TeacherDocumentsPage() {
   };
 
   useEffect(() => { 
-    fetchDocs(); 
+    fetchDocsAndClasses(); 
   }, []);
 
   const handleUpload = async (file: File) => {
     setUploading(true);
     try {
       // @ts-ignore
-      await api.uploadFile<any>('/api/documents/upload', file, { document_type: docType });
-      fetchDocs();
+      await api.uploadFile<any>('/api/documents/upload', file, { 
+          document_type: docType,
+          ...(docType === 'CLASS_MATERIAL' && targetClassId ? { target_class_id: targetClassId } : {})
+      });
+      fetchDocsAndClasses();
       alert('Document uploaded successfully!');
     } catch (err: any) {
       console.error(err);
@@ -51,7 +60,7 @@ export default function TeacherDocumentsPage() {
     setParsingId(id);
     try {
       await api.post<any>(`/api/documents/${id}/parse`);
-      await fetchDocs();
+      await fetchDocsAndClasses();
       router.push(`/dashboard/teacher/parse-review/${id}`);
     } catch (err: any) {
       console.error(err);
@@ -104,19 +113,39 @@ export default function TeacherDocumentsPage() {
       {/* Upload Box for Teachers */}
       <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
         <h2 className="text-lg font-medium text-gray-900 mb-4">📤 Upload New Class Document</h2>
-        <div className="mb-4">
-          <label className="block text-sm font-medium text-gray-700 mb-1">Select Document Category</label>
-          <select
-            value={docType}
-            onChange={(e) => setDocType(e.target.value)}
-            className="w-full max-w-xs px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-          >
-            {docTypes.map((dt) => (
-              <option key={dt.value} value={dt.value}>
-                {dt.label}
-              </option>
-            ))}
-          </select>
+        <div className="flex gap-4 mb-4">
+          <div className="flex-1 max-w-xs">
+            <label className="block text-sm font-medium text-gray-700 mb-1">Select Document Category</label>
+            <select
+              value={docType}
+              onChange={(e) => setDocType(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+            >
+              {docTypes.map((dt) => (
+                <option key={dt.value} value={dt.value}>
+                  {dt.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          
+          {docType === 'CLASS_MATERIAL' && (
+            <div className="flex-1 max-w-xs">
+              <label className="block text-sm font-medium text-gray-700 mb-1">Target Class (Optional)</label>
+              <select
+                value={targetClassId}
+                onChange={(e) => setTargetClassId(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+              >
+                <option value="">-- All Classes / None --</option>
+                {classes.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
         </div>
         <FileUpload onFileSelect={handleUpload} loading={uploading} />
       </div>

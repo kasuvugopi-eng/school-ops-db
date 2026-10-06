@@ -99,11 +99,77 @@ async def handle_file_submission(update: Update, context: ContextTypes.DEFAULT_T
         sub, assign = row
         caption = update.message.caption or "Submitted via Telegram"
         
+        await update.message.reply_text("⏳ Received your file. Parsing and extracting text for review...")
+
+        import tempfile
+        import os
+        import base64
+        from app.agents.llm_factory import LLMFactory
+
+        file_obj = None
+        mime_type = ""
+        try:
+            if update.message.photo:
+                photo = update.message.photo[-1]
+                file_obj = await photo.get_file()
+                mime_type = "image/jpeg"
+            elif update.message.document:
+                file_obj = await update.message.document.get_file()
+                mime_type = update.message.document.mime_type or "application/octet-stream"
+            elif update.message.voice:
+                file_obj = await update.message.voice.get_file()
+                mime_type = update.message.voice.mime_type or "audio/ogg"
+            elif update.message.audio:
+                file_obj = await update.message.audio.get_file()
+                mime_type = update.message.audio.mime_type or "audio/mpeg"
+        except Exception as e:
+            print(f"Error getting file object: {e}")
+
+        extracted_text = f"[{caption}]"
+        if file_obj:
+            try:
+                with tempfile.NamedTemporaryFile(delete=False) as tf:
+                    temp_path = tf.name
+                
+                await file_obj.download_to_drive(custom_path=temp_path)
+                
+                if mime_type.startswith("image/"):
+                    with open(temp_path, "rb") as f:
+                        b64_img = base64.b64encode(f.read()).decode("utf-8")
+                    
+                    parsed = LLMFactory.generate_text(
+                        prompt="Please transcribe the content of this image, extracting any handwritten or typed text related to the assignment. If it's a photo of work, describe it clearly.",
+                        image_b64=b64_img,
+                        mime_type=mime_type
+                    )
+                    extracted_text = f"[Image Parsed Context]\n{parsed}\n\n[Original Caption]: {caption}"
+                elif mime_type.startswith("audio/") or mime_type.startswith("video/") or "ogg" in mime_type:
+                    with open(temp_path, "rb") as f:
+                        b64_audio = base64.b64encode(f.read()).decode("utf-8")
+                    parsed = LLMFactory.generate_text(
+                        prompt="Please carefully transcribe this audio message.",
+                        image_b64=b64_audio,
+                        mime_type=mime_type
+                    )
+                    extracted_text = f"[Audio Transcribed Context]\n{parsed}\n\n[Original Caption]: {caption}"
+                else:
+                    from app.agents.document_parser import extract_text as doc_extract
+                    raw_text = doc_extract(temp_path, mime_type)
+                    parsed = LLMFactory.generate_text(
+                        prompt=f"Please summarize and clean up this assignment submission text:\n\n{raw_text}",
+                    )
+                    extracted_text = f"[Document Parsed Context]\n{parsed}\n\n[Original Caption]: {caption}"
+                
+                os.unlink(temp_path)
+            except Exception as e:
+                print(f"Failed to extract file: {e}")
+                extracted_text = f"[{caption}] - (Failed to parse attached file: {e})"
+        
         # Update submission state
         new_state = SubmissionState.RESUBMITTED if sub.state == SubmissionState.REVISION_REQUESTED else SubmissionState.SUBMITTED
         sub = await update_submission_state(
             db, sub.id, new_state,
-            content_text=f"[File submitted via Telegram] {caption}"
+            content_text=extracted_text
         )
         
         await log_event(

@@ -121,6 +121,70 @@ class LLMFactory:
 
         raise RuntimeError("Both OpenAI and Gemini LLM providers failed or have invalid credentials.")
 
+    @classmethod
+    def generate_text(
+        cls,
+        prompt: str,
+        system_prompt: str = "",
+        image_b64: Optional[str] = None,
+        mime_type: Optional[str] = "image/png"
+    ) -> str:
+        """Generates raw text using OpenAI or Gemini fallback."""
+        openai_client = cls.get_openai_client()
+        if openai_client:
+            try:
+                user_content = []
+                if image_b64:
+                    user_content.append({
+                        "type": "image_url",
+                        "image_url": {"url": f"data:{mime_type};base64,{image_b64}"}
+                    })
+                    user_content.append({"type": "text", "text": prompt})
+                else:
+                    user_content = prompt
+
+                messages = []
+                if system_prompt:
+                    messages.append({"role": "system", "content": system_prompt})
+                messages.append({"role": "user", "content": user_content})
+
+                model_name = settings.OPENAI_MODEL if settings.OPENAI_MODEL and "luna" not in settings.OPENAI_MODEL else "gpt-4o-mini"
+                completion = openai_client.chat.completions.create(
+                    model=model_name,
+                    messages=messages,
+                )
+                if completion.choices:
+                    return completion.choices[0].message.content
+            except Exception as e:
+                print(f"[LLMFactory] OpenAI text generation failed: {e}. Falling back to Gemini...")
+
+        gemini_client = cls.get_gemini_client()
+        if gemini_client:
+            try:
+                contents = []
+                if image_b64:
+                    import base64
+                    img_bytes = base64.b64decode(image_b64)
+                    contents.append({
+                        "inline_data": {
+                            "mime_type": mime_type or "image/png",
+                            "data": img_bytes
+                        }
+                    })
+                
+                full_prompt = f"{system_prompt}\n\n{prompt}" if system_prompt else prompt
+                contents.append(full_prompt)
+
+                response = gemini_client.models.generate_content(
+                    model="gemini-3.5-flash-lite",
+                    contents=contents
+                )
+                return response.text
+            except Exception as ge:
+                print(f"[LLMFactory] Gemini text generation failed: {ge}")
+
+        return "Could not generate text."
+
 def get_model():
     """Helper method returning the active LLMFactory instance."""
     return LLMFactory()

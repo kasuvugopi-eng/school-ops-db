@@ -61,7 +61,7 @@ async def create_assignment(
         "subject": data.subject,
         "instructions": data.instructions,
         "due_date": data.due_date,
-        "target_type": data.target_type,
+        "target_type": AssignmentTargetType.INDIVIDUAL if data.student_ids else AssignmentTargetType.CLASS,
         "target_student_ids": [str(sid) for sid in (data.student_ids or [])],
         "state": AssignmentState.DRAFT
     }

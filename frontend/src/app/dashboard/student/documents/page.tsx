@@ -11,8 +11,8 @@ export default function StudentDocumentsPage() {
     try {
       const res = await api.get<any>('/api/documents');
       const items = Array.isArray(res) ? res : (res?.items ?? res?.data ?? []);
-      // Filter to school policy documents
-      setDocuments(items.filter((d: any) => d.document_type === 'POLICY'));
+      // Display all documents returned by backend (Policies & Class Materials)
+      setDocuments(items);
     } catch (err) {
       console.error(err);
     } finally {
@@ -45,7 +45,7 @@ export default function StudentDocumentsPage() {
             <thead className="bg-gray-50">
               <tr>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Policy Document Name
+                  Document Name
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Category
@@ -65,9 +65,15 @@ export default function StudentDocumentsPage() {
                     📋 {doc.original_filename}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                      School Policy
-                    </span>
+                    {doc.document_type === 'POLICY' ? (
+                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                        School Policy
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                        Class Material
+                      </span>
+                    )}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                     {new Date(doc.created_at).toLocaleDateString()}

@@ -2,7 +2,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 from typing import Optional
-from sqlalchemy import String, Integer, DateTime, ForeignKey, func
+from sqlalchemy import String, Integer, DateTime, ForeignKey, func, JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base
 from app.models.enums import DocumentType
@@ -20,6 +20,8 @@ class Document(Base):
     file_size: Mapped[Optional[int]] = mapped_column(Integer)
     owner_type: Mapped[Optional[str]] = mapped_column(String(50))
     owner_id: Mapped[Optional[uuid.UUID]] = mapped_column()
+    target_class_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("grade_classes.id"))
+    target_student_ids: Mapped[list] = mapped_column(JSON, default=list)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     school = relationship("School")

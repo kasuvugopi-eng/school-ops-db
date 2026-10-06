@@ -4,7 +4,7 @@ import aiofiles
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, or_
+from sqlalchemy import select, or_, and_
 from app.database import get_db
 from app.auth.dependencies import get_current_user, require_role
 from app.auth.permissions import assert_same_school
@@ -24,6 +24,8 @@ router = APIRouter()
 async def upload_document(
     file: UploadFile = File(...),
     document_type: str = Form(...),
+    target_class_id: uuid.UUID = Form(None),
+    student_ids: str = Form(None),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
@@ -48,6 +50,14 @@ async def upload_document(
     async with aiofiles.open(file_path, 'wb') as f:
         await f.write(content)
     
+    import json
+    parsed_student_ids = []
+    if student_ids:
+        try:
+            parsed_student_ids = json.loads(student_ids)
+        except Exception:
+            parsed_student_ids = [student_ids]
+
     doc = Document(
         school_id=current_user.school_id,
         uploaded_by=current_user.id,
@@ -55,7 +65,9 @@ async def upload_document(
         original_filename=file.filename or "unknown",
         file_path=file_path,
         mime_type=file.content_type,
-        file_size=len(content)
+        file_size=len(content),
+        target_class_id=target_class_id,
+        target_student_ids=parsed_student_ids
     )
     db.add(doc)
     await log_event(db, "document.uploaded", school_id=current_user.school_id,
@@ -63,6 +75,37 @@ async def upload_document(
                     resource_id=doc.id, details={"filename": file.filename, "type": document_type})
     await db.commit()
     await db.refresh(doc)
+    
+    # Send Telegram alert for CLASS_MATERIAL
+    if doc_type == DocumentType.CLASS_MATERIAL and (target_class_id or parsed_student_ids):
+        from app.telegram.bot import send_telegram_message
+        from app.models.student_enrollment import StudentEnrollment
+        import uuid as py_uuid
+        
+        # Find students to notify
+        if parsed_student_ids:
+            target_uuids = [py_uuid.UUID(sid) if isinstance(sid, str) else sid for sid in parsed_student_ids]
+            students_query = select(User).where(
+                User.id.in_(target_uuids),
+                User.telegram_chat_id.isnot(None)
+            )
+        elif target_class_id:
+            students_query = select(User).join(StudentEnrollment, StudentEnrollment.student_id == User.id).where(
+                StudentEnrollment.class_id == target_class_id,
+                User.telegram_chat_id.isnot(None)
+            )
+        
+        students_res = await db.execute(students_query)
+        notifiable_students = students_res.scalars().all()
+        
+        msg = (
+            "📚 *New Class Material Uploaded*\n\n"
+            f"*Teacher:* {current_user.full_name}\n"
+            f"*File:* {doc.original_filename}\n\n"
+            "📥 You can download it from your Documents section in the Web Portal!"
+        )
+        for student in notifiable_students:
+            await send_telegram_message(student.telegram_chat_id, msg)
     
     return {
         "id": str(doc.id), "document_type": doc.document_type.value,
@@ -84,8 +127,57 @@ async def list_documents(
                 Document.uploaded_by == current_user.id
             )
         )
-    elif current_user.role in (UserRole.STUDENT, UserRole.GUARDIAN):
-        query = query.where(Document.document_type == DocumentType.POLICY)
+    elif current_user.role == UserRole.STUDENT:
+        from app.models.student_enrollment import StudentEnrollment
+        from sqlalchemy import String, cast
+        
+        # Student sees POLICIES and CLASS_MATERIALS meant for their classes or them specifically
+        enr_res = await db.execute(select(StudentEnrollment.class_id).where(StudentEnrollment.student_id == current_user.id))
+        class_ids = [row[0] for row in enr_res.all()]
+        
+        query = query.where(
+            or_(
+                Document.document_type == DocumentType.POLICY,
+                and_(
+                    Document.document_type == DocumentType.CLASS_MATERIAL,
+                    or_(
+                        Document.target_class_id.in_(class_ids),
+                        # cast json to string and use like for simple matching
+                        cast(Document.target_student_ids, String).like(f'%{current_user.id}%')
+                    )
+                )
+            )
+        )
+    elif current_user.role == UserRole.GUARDIAN:
+        from app.models.guardian_link import GuardianLink
+        from app.models.student_enrollment import StudentEnrollment
+        from sqlalchemy import String, cast
+        
+        # Guardian sees POLICIES and CLASS_MATERIALS meant for their linked students
+        link_res = await db.execute(select(GuardianLink.student_id).where(GuardianLink.guardian_id == current_user.id))
+        child_ids = [row[0] for row in link_res.all()]
+        
+        if child_ids:
+            enr_res = await db.execute(select(StudentEnrollment.class_id).where(StudentEnrollment.student_id.in_(child_ids)))
+            class_ids = [row[0] for row in enr_res.all()]
+            
+            # Create a list of conditions for each child
+            child_conditions = [cast(Document.target_student_ids, String).like(f'%{cid}%') for cid in child_ids]
+            
+            query = query.where(
+                or_(
+                    Document.document_type == DocumentType.POLICY,
+                    and_(
+                        Document.document_type == DocumentType.CLASS_MATERIAL,
+                        or_(
+                            Document.target_class_id.in_(class_ids),
+                            *child_conditions
+                        )
+                    )
+                )
+            )
+        else:
+            query = query.where(Document.document_type == DocumentType.POLICY)
 
     result = await db.execute(query.order_by(Document.created_at.desc()))
     docs = result.scalars().all()

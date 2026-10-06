@@ -84,7 +84,14 @@ async def notify_students_for_assignment(db: AsyncSession, assignment: Assignmen
     )
 
     # Find notifiable enrolled students
-    if assignment.target_class_id:
+    if assignment.target_type == AssignmentTargetType.INDIVIDUAL and assignment.target_student_ids:
+        import uuid as py_uuid
+        target_uuids = [py_uuid.UUID(sid) if isinstance(sid, str) else sid for sid in assignment.target_student_ids]
+        students_query = select(User).where(
+            User.id.in_(target_uuids),
+            User.telegram_chat_id.isnot(None)
+        )
+    elif assignment.target_class_id:
         students_query = select(User).join(StudentEnrollment, StudentEnrollment.student_id == User.id).where(
             StudentEnrollment.class_id == assignment.target_class_id,
             User.telegram_chat_id.isnot(None)
@@ -215,7 +222,14 @@ async def get_assignment(db: AsyncSession, assignment_id: uuid.UUID):
 async def notify_students_cancelled_assignment(db: AsyncSession, assignment: Assignment):
     from app.models.user import User
     from app.models.student_enrollment import StudentEnrollment
-    if assignment.target_class_id:
+    if assignment.target_type == AssignmentTargetType.INDIVIDUAL and assignment.target_student_ids:
+        import uuid as py_uuid
+        target_uuids = [py_uuid.UUID(sid) if isinstance(sid, str) else sid for sid in assignment.target_student_ids]
+        students_query = select(User).where(
+            User.id.in_(target_uuids),
+            User.telegram_chat_id.isnot(None)
+        )
+    elif assignment.target_class_id:
         students_query = select(User).join(StudentEnrollment, StudentEnrollment.student_id == User.id).where(
             StudentEnrollment.class_id == assignment.target_class_id,
             User.telegram_chat_id.isnot(None)

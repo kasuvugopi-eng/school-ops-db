@@ -104,12 +104,31 @@ async def process_teacher_assignment_flow(update: Update, context: ContextTypes.
                         
                     target_class_id = selected_class.id if hasattr(selected_class, 'id') else classes[0].id
                     
+                    target_type = AssignmentTargetType.CLASS
+                    target_student_ids = []
+                    
+                    if getattr(parsed, 'target_students', None):
+                        from app.models.student_enrollment import StudentEnrollment
+                        st_res = await db.execute(select(User).join(StudentEnrollment, StudentEnrollment.student_id == User.id).where(StudentEnrollment.class_id == target_class_id))
+                        enrolled = st_res.scalars().all()
+                        
+                        student_names = [name.lower() for name in parsed.target_students]
+                        for enrolled_st in enrolled:
+                            for name in student_names:
+                                if name in enrolled_st.full_name.lower() or enrolled_st.full_name.lower() in name:
+                                    target_student_ids.append(str(enrolled_st.id))
+                                    break
+                                    
+                        if target_student_ids:
+                            target_type = AssignmentTargetType.INDIVIDUAL
+                    
                     assignment_data = {
                         "title": parsed.title or "New Assignment",
                         "subject": parsed.subject or "General",
                         "instructions": parsed.instructions or raw_text or "See details",
                         "due_date": due_dt,
-                        "target_type": AssignmentTargetType.CLASS,
+                        "target_type": target_type,
+                        "target_student_ids": target_student_ids,
                         "state": AssignmentState.ACTIVE
                     }
                     

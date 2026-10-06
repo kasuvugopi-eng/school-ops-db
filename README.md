@@ -35,6 +35,17 @@ An AI-powered school management platform that combines a web application, Telegr
 └─────────────────────────────────────────────────────────┘
 ```
 
+
+## Features & Recent Updates
+
+- **Multimodal Assignment Submissions**: Students can submit photos and documents via Telegram. The AI automatically extracts text from images and updates the submission.
+- **Individual Assignments**: Teachers can create assignments targeted at specific students (via Web Dashboard or Telegram).
+- **Targeted Class Materials**: Teachers can upload class materials targeted to specific classes or students. Students receive immediate Telegram notifications.
+- **Role-Based Document Filtering**: Students and guardians only see documents relevant to them.
+- **Parent-Teacher Communication**: Parents can send messages to teachers via Telegram; messages are properly tagged and routed.
+
+*(Note: Telegram voice/audio note parsing for commands is currently experimental and may not work properly. Text and photo submissions are fully supported).*
+
 ## Prerequisites
 
 - **Python 3.12+**
