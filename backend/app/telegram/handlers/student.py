@@ -126,22 +126,49 @@ async def handle_file_submission(update: Update, context: ContextTypes.DEFAULT_T
             print(f"Error getting file object: {e}")
 
         extracted_text = f"[{caption}]"
+        attachment_id = None
         if file_obj:
             try:
                 with tempfile.NamedTemporaryFile(delete=False) as tf:
                     temp_path = tf.name
                 
                 await file_obj.download_to_drive(custom_path=temp_path)
+
+                # Persist original file so the teacher can open it from the dashboard
+                import shutil, uuid as _uuid
+                from app.config import settings as _settings
+                from app.models.document import Document
+                from app.models.enums import DocumentType
+                school_dir = os.path.join(_settings.UPLOAD_DIR, str(assign.school_id))
+                os.makedirs(school_dir, exist_ok=True)
+                ext = {"image/jpeg": ".jpg", "image/png": ".png", "application/pdf": ".pdf"}.get(mime_type, "")
+                if not ext and update.message.document and update.message.document.file_name:
+                    ext = os.path.splitext(update.message.document.file_name)[1]
+                orig_name = (update.message.document.file_name if update.message.document and update.message.document.file_name
+                             else f"submission{ext}")
+                saved_path = os.path.join(school_dir, f"{_uuid.uuid4()}{ext}")
+                shutil.copyfile(temp_path, saved_path)
+                doc_row = Document(
+                    school_id=assign.school_id, uploaded_by=user.id,
+                    document_type=DocumentType.SUBMISSION_ATTACHMENT,
+                    original_filename=orig_name, file_path=saved_path,
+                    mime_type=mime_type, file_size=os.path.getsize(saved_path)
+                )
+                db.add(doc_row)
+                await db.flush()
+                attachment_id = doc_row.id
                 
                 if mime_type.startswith("image/"):
                     with open(temp_path, "rb") as f:
                         b64_img = base64.b64encode(f.read()).decode("utf-8")
                     
                     parsed = LLMFactory.generate_text(
-                        prompt="Please transcribe the content of this image, extracting any handwritten or typed text related to the assignment. If it's a photo of work, describe it clearly.",
+                        prompt="Transcribe all typed or handwritten text in this image exactly. If it is a photo of work without much text, describe it clearly.",
                         image_b64=b64_img,
                         mime_type=mime_type
                     )
+                    if parsed.startswith("Could not generate"):
+                        parsed = "(Automatic text extraction unavailable - open the attached image)"
                     extracted_text = f"[Image Parsed Context]\n{parsed}\n\n[Original Caption]: {caption}"
                 elif mime_type.startswith("audio/") or mime_type.startswith("video/") or "ogg" in mime_type:
                     with open(temp_path, "rb") as f:
@@ -155,10 +182,15 @@ async def handle_file_submission(update: Update, context: ContextTypes.DEFAULT_T
                 else:
                     from app.agents.document_parser import extract_text as doc_extract
                     raw_text = doc_extract(temp_path, mime_type)
-                    parsed = LLMFactory.generate_text(
-                        prompt=f"Please summarize and clean up this assignment submission text:\n\n{raw_text}",
-                    )
-                    extracted_text = f"[Document Parsed Context]\n{parsed}\n\n[Original Caption]: {caption}"
+                    if raw_text.startswith("[IMAGE:"):  # scanned PDF
+                        end = raw_text.find("]")
+                        mt, b64 = raw_text[7:end].split(";base64,")
+                        raw_text = LLMFactory.generate_text(
+                            prompt="Transcribe all text in this page exactly.",
+                            image_b64=b64, mime_type=mt
+                        )
+                    # Keep the full original text; do not let the LLM paraphrase student work
+                    extracted_text = f"[Document Content]\n{raw_text[:20000]}\n\n[Original Caption]: {caption}"
                 
                 os.unlink(temp_path)
             except Exception as e:
@@ -169,7 +201,8 @@ async def handle_file_submission(update: Update, context: ContextTypes.DEFAULT_T
         new_state = SubmissionState.RESUBMITTED if sub.state == SubmissionState.REVISION_REQUESTED else SubmissionState.SUBMITTED
         sub = await update_submission_state(
             db, sub.id, new_state,
-            content_text=extracted_text
+            content_text=extracted_text,
+            attachment_id=attachment_id
         )
         
         await log_event(

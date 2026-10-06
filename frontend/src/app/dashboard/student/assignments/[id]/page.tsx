@@ -60,7 +60,7 @@ export default function StudentAssignmentDetailPage() {
     try {
       await api.put<any>(`/api/submissions/${data.id}`, { state: targetState, content_text: content });
       fetchData();
-      if (targetState === 'SUBMITTED') {
+      if (targetState === 'SUBMITTED' || targetState === 'RESUBMITTED') {
         alert('Assignment submitted successfully!');
       }
     } catch (err: any) {
@@ -120,7 +120,12 @@ export default function StudentAssignmentDetailPage() {
             
             <div className="flex gap-3">
               <button onClick={() => handleUpdate(state === 'NOT_STARTED' ? 'IN_PROGRESS' : state)} className="px-4 py-2 bg-white text-indigo-600 border border-indigo-600 rounded-md">Save Draft</button>
-              <button onClick={() => handleUpdate('SUBMITTED')} className="px-4 py-2 bg-indigo-600 text-white rounded-md">Submit Assignment</button>
+              <button 
+                onClick={() => handleUpdate(state === 'REVISION_REQUESTED' ? 'RESUBMITTED' : 'SUBMITTED')} 
+                className="px-4 py-2 bg-indigo-600 text-white rounded-md font-medium"
+              >
+                {state === 'REVISION_REQUESTED' ? 'Resubmit Revision' : 'Submit Assignment'}
+              </button>
               <button onClick={() => setShowBlock(!showBlock)} className="px-4 py-2 bg-red-50 text-red-600 border border-red-200 rounded-md ml-auto">I'm Stuck</button>
             </div>
             

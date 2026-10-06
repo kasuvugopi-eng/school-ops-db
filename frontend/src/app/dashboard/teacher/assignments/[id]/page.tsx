@@ -124,6 +124,17 @@ export default function AssignmentDetailPage() {
                 </div>
               )}
 
+              {sub.attachment_document_id && (
+                <a
+                  href={`${process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000'}/api/documents/${sub.attachment_document_id}/download?token=${typeof window !== 'undefined' ? localStorage.getItem('access_token') : ''}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-block mb-4 text-sm text-indigo-600 underline"
+                >
+                  📎 Open student&apos;s original file / photo
+                </a>
+              )}
+
               {sub.state !== 'NOT_STARTED' && (
                 <div className="mt-4 border-t border-gray-100 pt-4">
                   <textarea 

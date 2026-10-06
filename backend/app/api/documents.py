@@ -276,7 +276,19 @@ async def parse_document(
         await db.commit()
         raise HTTPException(status_code=500, detail=f"Parsing failed: {str(e)}")
     
-    ambiguity_flags = getattr(parsed, 'ambiguities', [])
+    ambiguity_flags = list(getattr(parsed, 'ambiguities', []))
+
+    if doc.document_type == DocumentType.ASSIGNMENT_BRIEF:
+        # The LLM only sees a class *name*; approval needs a real class UUID chosen at upload.
+        if doc.target_class_id:
+            parsed.target_class_id = str(doc.target_class_id)
+        elif not parsed.target_class_id:
+            ambiguity_flags.append("Target class could not be determined")
+        else:
+            ambiguity_flags.append("Please select the target class")
+            parsed.target_class_id = None
+        if doc.target_student_ids:
+            parsed.target_students = [str(s) for s in doc.target_student_ids]
     approval_state = ParseApprovalState.PENDING
     clarification_question = None
     

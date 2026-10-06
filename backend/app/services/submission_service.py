@@ -10,7 +10,7 @@ SUBMISSION_TRANSITIONS = {
     SubmissionState.IN_PROGRESS: {SubmissionState.BLOCKED, SubmissionState.SUBMITTED},
     SubmissionState.BLOCKED: {SubmissionState.IN_PROGRESS, SubmissionState.SUBMITTED, SubmissionState.RESUBMITTED},
     SubmissionState.SUBMITTED: {SubmissionState.REVISION_REQUESTED, SubmissionState.COMPLETED},
-    SubmissionState.REVISION_REQUESTED: {SubmissionState.BLOCKED, SubmissionState.RESUBMITTED},
+    SubmissionState.REVISION_REQUESTED: {SubmissionState.BLOCKED, SubmissionState.SUBMITTED, SubmissionState.RESUBMITTED},
     SubmissionState.RESUBMITTED: {SubmissionState.COMPLETED, SubmissionState.REVISION_REQUESTED}
 }
 

@@ -147,7 +147,8 @@ async def get_assignment_detail(
             "student_name": student_name, "state": sub.state.value,
             "content_text": sub.content_text, "blocked_reason": sub.blocked_reason,
             "submitted_at": str(sub.submitted_at) if sub.submitted_at else None,
-            "created_at": str(sub.created_at)
+            "created_at": str(sub.created_at),
+            "attachment_document_id": str(sub.attachment_document_id) if sub.attachment_document_id else None
         })
     
     return {
