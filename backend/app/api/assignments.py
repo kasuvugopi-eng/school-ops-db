@@ -85,14 +85,7 @@ async def list_assignments(
     query = select(Assignment).where(Assignment.school_id == current_user.school_id)
     
     if current_user.role == UserRole.TEACHER:
-        tc_result = await db.execute(
-            select(TeacherClassAssignment.class_id).where(TeacherClassAssignment.teacher_id == current_user.id)
-        )
-        class_ids = [row[0] for row in tc_result.all()]
-        if class_ids:
-            query = query.where((Assignment.created_by == current_user.id) | (Assignment.target_class_id.in_(class_ids)))
-        else:
-            query = query.where(Assignment.created_by == current_user.id)
+        query = query.where(Assignment.created_by == current_user.id)
     elif current_user.role == UserRole.STUDENT:
         # Only assignments where student has a submission, and state is not DRAFT
         student_assignments = await db.execute(

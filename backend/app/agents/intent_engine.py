@@ -30,26 +30,15 @@ def get_client():
         client = OpenAI(api_key=settings.OPENAI_API_KEY)
     return client
 
+from app.agents.llm_factory import LLMFactory
+
 async def classify_intent(message: str, user_role: str, context: dict = None) -> DetectedIntent:
-    openai_client = get_client()
-    if not openai_client:
-        return DetectedIntent(
-            intent="unknown",
-            confidence=0.0,
-            reasoning="OpenAI API key not configured",
-            is_safe=True
-        )
-    
     try:
-        completion = openai_client.beta.chat.completions.parse(
-            model=settings.OPENAI_MODEL,
-            messages=[
-                {"role": "system", "content": INTENT_CLASSIFICATION_PROMPT},
-                {"role": "user", "content": f"User role: {user_role}\nMessage: {message}\nContext: {context or {}}"}
-            ],
-            response_format=DetectedIntent,
+        result = LLMFactory.parse_structured(
+            prompt=f"User role: {user_role}\nMessage: {message}\nContext: {context or {}}",
+            response_schema=DetectedIntent,
+            system_prompt=INTENT_CLASSIFICATION_PROMPT
         )
-        result = completion.choices[0].message.parsed
         
         # Deterministic override: reject intents that don't match role permissions
         denied = ROLE_DENIED_INTENTS.get(user_role, set())

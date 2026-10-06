@@ -53,71 +53,55 @@ def extract_text(file_path: str, mime_type: str) -> str:
         with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
             return f.read()
 
+from app.agents.llm_factory import LLMFactory
+
 async def parse_assignment_document(text: str) -> ParsedAssignment:
-    openai_client = get_openai_client()
-    if not openai_client:
-        return ParsedAssignment(
-            ambiguities=["OpenAI API key not configured. Manual entry required."],
-            confidence=0.0
-        )
-    
     safe_text = sanitize_document_text(text)
     
-    user_content = []
+    image_b64 = None
+    mime_type = "image/png"
+    prompt = f"Extract assignment information:\n\n{safe_text}"
+
     if safe_text.startswith("[IMAGE:"):
         end_idx = safe_text.find("]")
         if end_idx != -1:
             meta = safe_text[7:end_idx]
-            mime_type, b64_data = meta.split(";base64,")
-            user_content.append({
-                "type": "image_url",
-                "image_url": {"url": f"data:{mime_type};base64,{b64_data}"}
-            })
-            user_content.append({"type": "text", "text": "Extract assignment information from this image."})
-    else:
-        user_content = f"Extract assignment information:\n\n{safe_text}"
+            mime_type, image_b64 = meta.split(";base64,")
+            prompt = "Extract assignment information from this image."
 
-    completion = openai_client.beta.chat.completions.parse(
-        model=settings.OPENAI_MODEL,
-        messages=[
-            {"role": "system", "content": ASSIGNMENT_PARSE_PROMPT},
-            {"role": "user", "content": user_content}
-        ],
-        response_format=ParsedAssignment,
-    )
-    message = completion.choices[0].message
-    if message.refusal:
+    try:
+        result = LLMFactory.parse_structured(
+            prompt=prompt,
+            response_schema=ParsedAssignment,
+            system_prompt=ASSIGNMENT_PARSE_PROMPT,
+            image_b64=image_b64,
+            mime_type=mime_type
+        )
+        if not result.title:
+            result.ambiguities.append("Title could not be determined")
+        if not result.due_date:
+            result.ambiguities.append("Due date not found or unclear")
+        if not result.target_class_id:
+            result.ambiguities.append("Target class could not be determined")
+        return result
+    except Exception as e:
+        print(f"[DocumentParser] Parsing failed: {e}")
         return ParsedAssignment(
-            ambiguities=[f"Model refused to parse: {message.refusal}"],
+            ambiguities=[f"Document parsing failed: {str(e)}"],
             confidence=0.0
         )
-    result = message.parsed
-    if not result.title:
-        result.ambiguities.append("Title could not be determined")
-    if not result.due_date:
-        result.ambiguities.append("Due date not found or unclear")
-    if not result.target_class_id:
-        result.ambiguities.append("Target class could not be determined")
-    return result
 
 async def parse_roster_document(text: str) -> ParsedRoster:
-    openai_client = get_openai_client()
-    if not openai_client:
-        return parse_csv_roster(text)
-    
     safe_text = sanitize_document_text(text)
-    completion = openai_client.beta.chat.completions.parse(
-        model=settings.OPENAI_MODEL,
-        messages=[
-            {"role": "system", "content": ROSTER_PARSE_PROMPT},
-            {"role": "user", "content": f"Extract roster information:\n\n{safe_text}"}
-        ],
-        response_format=ParsedRoster,
-    )
-    message = completion.choices[0].message
-    if message.refusal:
-        return ParsedRoster(rows=[], ambiguities=[f"Model refused: {message.refusal}"])
-    return message.parsed
+    try:
+        return LLMFactory.parse_structured(
+            prompt=f"Extract roster information:\n\n{safe_text}",
+            response_schema=ParsedRoster,
+            system_prompt=ROSTER_PARSE_PROMPT
+        )
+    except Exception as e:
+        print(f"[DocumentParser] Roster parsing failed: {e}")
+        return parse_csv_roster(text)
 
 def parse_csv_roster(text: str) -> ParsedRoster:
     """Fallback CSV parser without LLM."""

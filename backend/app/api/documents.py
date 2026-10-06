@@ -4,7 +4,7 @@ import aiofiles
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, or_
 from app.database import get_db
 from app.auth.dependencies import get_current_user, require_role
 from app.auth.permissions import assert_same_school
@@ -75,10 +75,19 @@ async def list_documents(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    result = await db.execute(
-        select(Document).where(Document.school_id == current_user.school_id)
-        .order_by(Document.created_at.desc())
-    )
+    query = select(Document).where(Document.school_id == current_user.school_id)
+    
+    if current_user.role == UserRole.TEACHER:
+        query = query.where(
+            or_(
+                Document.document_type == DocumentType.POLICY,
+                Document.uploaded_by == current_user.id
+            )
+        )
+    elif current_user.role in (UserRole.STUDENT, UserRole.GUARDIAN):
+        query = query.where(Document.document_type == DocumentType.POLICY)
+
+    result = await db.execute(query.order_by(Document.created_at.desc()))
     docs = result.scalars().all()
     
     docs_out = []

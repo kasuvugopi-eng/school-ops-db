@@ -48,9 +48,9 @@ def create_bot_app() -> Application | None:
             else:
                 await student.handle_file_submission(update, context)
 
-    # Photo/document handler
+    # Photo/document/voice note/audio handler
     app.add_handler(MessageHandler(
-        filters.PHOTO | filters.Document.ALL,
+        filters.PHOTO | filters.Document.ALL | filters.VOICE | filters.AUDIO,
         handle_media_upload
     ))
     
